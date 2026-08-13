@@ -1,4 +1,5 @@
 const db = require('./db');
+const { SALA_INTERIOR_POS, BARRA_POS } = require('./floorPositions');
 
 const tx = db.transaction(() => {
   db.exec(`
@@ -59,40 +60,16 @@ const tx = db.transaction(() => {
     ['205', 1, 1], ['206', 1, 1], ['207', 1, 1],
   ];
 
-  // pos_x/pos_y (0-100, % del lienzo) recalculadas a partir de la segunda captura del
-  // plano de Cover (más nítida, con medidas de distancias reales entre mesas). Cover
-  // no exporta coordenadas, así que esto sigue siendo una lectura a ojo de la imagen,
-  // no una medida exacta — se puede reajustar mesa a mesa más adelante si no encaja.
-  // Las mesas 508-519 ocupan, en el plano de Cover, las posiciones que antes eran
-  // 25 y 28-38 (los únicos números que faltan en el listado de "ID mesa"), así que
-  // se colocan ahí; si esa suposición no es correcta basta con mover la mesa a mano.
-  const salaInteriorPos = {
-    '9': [6, 14], '8': [15, 14], '7': [22, 14],
-    '519': [73, 10],
-    '13': [6, 33], '12': [14, 33], '11': [21, 33], '10': [28, 33],
-    '6': [40, 41], '4': [51, 41], '2': [58, 41],
-    '5': [40, 49], '3': [51, 49], '1': [58, 49],
-    '17': [5, 49], '16': [10, 49], '15': [17, 49], '14': [24, 49],
-    '18': [4, 61], '19': [4, 69], '20': [4, 78],
-    '518': [21, 69], '517': [41, 69], '516': [51, 69], '515': [62, 69],
-    '21': [4, 87], '22': [11, 87], '23': [16, 87],
-    '24': [25, 87], '508': [30, 87], '26': [35, 87], '27': [40, 87],
-    '509': [46, 87], '510': [51, 87],
-    '511': [60, 87], '512': [65, 87], '513': [71, 87], '514': [75, 87],
-  };
-  // La Barra es una zona/pestaña aparte en Cover: se coloca en su propia franja
-  // arriba del lienzo para no solaparse con la Sala Interior.
-  const barraPos = {
-    '201': [30, 3], '202': [38, 3], '203': [46, 3], '204': [54, 3],
-    '205': [62, 3], '206': [70, 3], '207': [78, 3],
-  };
+  // pos_x/pos_y (0-100, % del lienzo) — ver server/floorPositions.js (compartido con la
+  // migración de db.js que las mantiene actualizadas en despliegues posteriores sin
+  // tener que volver a sembrar toda la base de datos).
   const tableId = {};
   salaInteriorTables.forEach(([name, capMin, capMax]) => {
-    const [x, y] = salaInteriorPos[name];
+    const [x, y] = SALA_INTERIOR_POS[name];
     tableId[name] = insertTable.run(restaurantId, standardPlanId, salaInteriorZoneId, name, capMin, capMax, x, y).lastInsertRowid;
   });
   barraTables.forEach(([name, capMin, capMax]) => {
-    const [x, y] = barraPos[name];
+    const [x, y] = BARRA_POS[name];
     tableId[name] = insertTable.run(restaurantId, standardPlanId, barraZoneId, name, capMin, capMax, x, y).lastInsertRowid;
   });
 

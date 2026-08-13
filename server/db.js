@@ -194,4 +194,13 @@ if (adminCount === 0) {
     .run('ngarcia@gruposaona.com', `${salt}:${hash}`);
 }
 
+// Mantiene pos_x/pos_y de las mesas de Plaza España al día en cada arranque (incluidos
+// despliegues sobre una base de datos ya sembrada) sin tocar reservas, combinaciones ni
+// ningún otro dato — solo la posición visual en el plano, así que es seguro repetir.
+const { SALA_INTERIOR_POS, BARRA_POS } = require('./floorPositions');
+const updatePos = db.prepare('UPDATE tables SET pos_x = ?, pos_y = ? WHERE name = ?');
+for (const [name, [x, y]] of Object.entries({ ...SALA_INTERIOR_POS, ...BARRA_POS })) {
+  updatePos.run(x, y, name);
+}
+
 module.exports = db;
