@@ -79,3 +79,17 @@
   background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-muted);
 }
 .fp-shift-toggle button.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+.fp-stats { display: flex; gap: 18px; margin-bottom: 10px; flex-wrap: wrap; }
+.fp-stat { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text); }
+.fp-stat b { font-weight: 700; color: var(--brand-dark); }
+.fp-stat .fp-stat-icon { font-size: 15px; }
+.fp-stat.fp-stat-warn b { color: #b8860b; }
+.fp-stat.fp-stat-full b { color: var(--danger); }
+
+.fp-zone-stats { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.fp-zone-stat {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 12px; font-size: 12.5px; color: var(--text-muted);
+}
+.fp-zone-stat b { color: var(--text); }

@@ -1,7 +1,7 @@
 const RESTAURANT_ID = 1;
 const $ = (id) => document.getElementById(id);
 
-const state = { date: todayISO(), reservations: [], tables: [], shift: 'Comida' };
+const state = { date: todayISO(), reservations: [], tables: [], shift: 'Comida', monthCursor: todayISO().slice(0, 7) };
 
 function todayISO() {
   const d = new Date();
@@ -38,16 +38,46 @@ async function loadReservations() {
 }
 
 function renderFloorPlanView() {
-  const busyTableNames = new Set(
-    state.reservations
-      .filter(r => r.status !== 'cancelled' && shiftLabel(r.time) === state.shift)
-      .flatMap(r => r.tables || [])
-  );
+  const shiftReservations = state.reservations.filter(r => r.status !== 'cancelled' && shiftLabel(r.time) === state.shift);
+  const busyTableNames = new Set(shiftReservations.flatMap(r => r.tables || []));
+
   renderFloorPlan($('floorPlanView'), state.tables, {
     getClass: (t) => (busyTableNames.has(t.name) ? 'status-busy' : ''),
     features: SALA_INTERIOR_FEATURES,
     zoneLabels: SALA_INTERIOR_ZONE_LABELS,
   });
+
+  // Aforo máximo = suma del máximo de comensales de cada mesa activa del plano del día
+  // (no el cupo de aforo por franja, que es más restrictivo y varía por hora).
+  const maxCovers = state.tables.reduce((sum, t) => sum + t.capacity_max, 0);
+  const coversReserved = shiftReservations.reduce((sum, r) => sum + r.party_size, 0);
+  const totalTables = state.tables.length;
+  const occupiedTables = busyTableNames.size;
+
+  const pctClass = (used, total) => {
+    if (!total) return '';
+    const pct = used / total;
+    if (pct >= 1) return 'fp-stat-full';
+    if (pct >= 0.8) return 'fp-stat-warn';
+    return '';
+  };
+
+  $('fpStats').innerHTML = `
+    <span class="fp-stat ${pctClass(coversReserved, maxCovers)}"><span class="fp-stat-icon">👥</span><b>${coversReserved}</b> / ${maxCovers} comensales</span>
+    <span class="fp-stat ${pctClass(occupiedTables, totalTables)}"><span class="fp-stat-icon">🍽️</span><b>${occupiedTables}</b> / ${totalTables} mesas</span>
+  `;
+
+  const zoneOrder = [];
+  const zoneTotals = {};
+  state.tables.forEach(t => {
+    const zone = t.zoneName || 'Sin zona';
+    if (!zoneTotals[zone]) { zoneTotals[zone] = { total: 0, busy: 0 }; zoneOrder.push(zone); }
+    zoneTotals[zone].total++;
+    if (busyTableNames.has(t.name)) zoneTotals[zone].busy++;
+  });
+  $('fpZoneStats').innerHTML = zoneOrder
+    .map(zone => `<div class="fp-zone-stat">${zone} <b>${zoneTotals[zone].busy}/${zoneTotals[zone].total}</b></div>`)
+    .join('');
 }
 
 function render() {
@@ -227,6 +257,68 @@ function shiftDate(days) {
   loadReservations();
 }
 
+// --- Vista mensual -------------------------------------------------------
+const MONTH_NAMES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const DAY_LABELS = ['L','M','X','J','V','S','D'];
+
+function openMonthView() {
+  $('dayView').classList.add('hidden');
+  $('monthView').classList.remove('hidden');
+  state.monthCursor = state.date.slice(0, 7);
+  loadMonthView();
+}
+function closeMonthView() {
+  $('monthView').classList.add('hidden');
+  $('dayView').classList.remove('hidden');
+}
+
+function shiftMonth(delta) {
+  const [y, m] = state.monthCursor.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  state.monthCursor = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  loadMonthView();
+}
+
+async function loadMonthView() {
+  const [y, m] = state.monthCursor.split('-').map(Number);
+  $('monthLabel').textContent = `${MONTH_NAMES[m - 1]} ${y}`;
+
+  const firstOfMonth = new Date(y, m - 1, 1);
+  const lastOfMonth = new Date(y, m, 0);
+  const from = state.monthCursor + '-01';
+  const to = `${y}-${String(m).padStart(2, '0')}-${String(lastOfMonth.getDate()).padStart(2, '0')}`;
+
+  const res = await fetch(`/api/reservations/summary?restaurantId=${RESTAURANT_ID}&from=${from}&to=${to}`);
+  const rows = await res.json();
+  const byDate = {};
+  rows.forEach(r => { byDate[r.date] = r; });
+
+  const grid = $('monthGrid');
+  grid.innerHTML = DAY_LABELS.map(l => `<div class="month-daylabel">${l}</div>`).join('');
+
+  // Lunes=0 ... Domingo=6 para que la semana empiece en lunes, como en España.
+  const leadingBlanks = (firstOfMonth.getDay() + 6) % 7;
+  for (let i = 0; i < leadingBlanks; i++) grid.innerHTML += '<div class="month-cell empty"></div>';
+
+  for (let day = 1; day <= lastOfMonth.getDate(); day++) {
+    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const summary = byDate[dateStr];
+    const cell = document.createElement('div');
+    cell.className = 'month-cell' + (dateStr === todayISO() ? ' today' : '');
+    cell.innerHTML = `
+      <span class="month-daynum">${day}</span>
+      ${summary ? `<span class="month-covers">${summary.covers}p</span><span class="month-res">${summary.reservations} reserva${summary.reservations === 1 ? '' : 's'}</span>` : '<span class="month-res">—</span>'}
+    `;
+    cell.addEventListener('click', () => {
+      state.date = dateStr;
+      $('dateFilter').value = dateStr;
+      closeMonthView();
+      loadReservations();
+    });
+    grid.appendChild(cell);
+  }
+}
+
 window.addEventListener('DOMContentLoaded', async () => {
   if (!(await guardAdminPage())) return;
   renderSessionBar($('sessionBar'));
@@ -252,6 +344,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('openNewBtn').addEventListener('click', openModal);
   $('modalCancelBtn').addEventListener('click', closeModal);
   $('modalSaveBtn').addEventListener('click', saveModal);
+
+  $('monthViewBtn').addEventListener('click', openMonthView);
+  $('closeMonthBtn').addEventListener('click', closeMonthView);
+  $('prevMonthBtn').addEventListener('click', () => shiftMonth(-1));
+  $('nextMonthBtn').addEventListener('click', () => shiftMonth(1));
 
   // auto-refresh every 30s to reflect reservations coming from web
   setInterval(loadReservations, 30000);

@@ -32,14 +32,27 @@
       <button class="btn-icon" id="nextDayBtn">&rarr;</button>
     </div>
     <div class="stats" id="dayStats"></div>
+    <button class="btn btn-secondary" id="monthViewBtn" style="margin-left:auto">📅 Vista mensual</button>
   </div>
 
-  <div class="shift-col" style="margin-bottom:20px">
+  <div class="shift-col hidden" id="monthView" style="margin-bottom:20px">
+    <div class="month-nav">
+      <button class="btn-icon" id="prevMonthBtn">&larr;</button>
+      <h3 id="monthLabel" style="margin:0"></h3>
+      <button class="btn-icon" id="nextMonthBtn">&rarr;</button>
+      <button class="btn btn-secondary" id="closeMonthBtn" style="margin-left:auto">Cerrar</button>
+    </div>
+    <div class="month-grid" id="monthGrid"></div>
+  </div>
+
+  <div class="shift-col" style="margin-bottom:20px" id="dayView">
     <h3>Plano — ocupación del día</h3>
     <div class="fp-shift-toggle" id="fpShiftToggle">
       <button data-shift="Comida" class="active">Comida</button>
       <button data-shift="Cena">Cena</button>
     </div>
+    <div class="fp-stats" id="fpStats"></div>
+    <div class="fp-zone-stats" id="fpZoneStats"></div>
     <div id="floorPlanView"></div>
     <div class="fp-legend">
       <span><span class="fp-legend-dot"></span>Libre</span>

@@ -208,6 +208,20 @@ app.get('/api/reservations', adminAuth.requireAdminAuth, requireRestaurant, (req
   res.json(withTables);
 });
 
+// Resumen por día (para la vista mensual) — cuántas reservas y comensales hay cada
+// día en un rango, sin traer el detalle completo de cada reserva.
+app.get('/api/reservations/summary', adminAuth.requireAdminAuth, requireRestaurant, (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from y to son obligatorios' });
+  const rows = db.prepare(`
+    SELECT date, COUNT(*) AS reservations, SUM(party_size) AS covers
+    FROM reservations
+    WHERE restaurant_id = ? AND date BETWEEN ? AND ? AND status != 'cancelled'
+    GROUP BY date
+  `).all(req.restaurant.id, from, to);
+  res.json(rows);
+});
+
 // --- Reservations: update status (admin) ---------------------------------
 app.patch('/api/reservations/:id', adminAuth.requireAdminAuth, (req, res) => {
   const { status, notes } = req.body;
