@@ -88,6 +88,8 @@ async function loadPlanDetail() {
   renderCombos();
   renderFloorPlan($('floorPlanView'), state.tables, {
     getClass: (t) => (t.zoneName === 'Barra' ? 'zone-barra' : 'zone-sala'),
+    features: SALA_INTERIOR_FEATURES,
+    zoneLabels: SALA_INTERIOR_ZONE_LABELS,
   });
 }
 

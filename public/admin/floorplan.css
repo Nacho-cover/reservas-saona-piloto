@@ -1,34 +1,65 @@
-.fp-canvas {
-  position: relative;
+.fp-scroll {
   width: 100%;
-  aspect-ratio: 16 / 10;
-  background: var(--bg);
+  overflow-x: auto;
+  overflow-y: hidden;
   border-radius: var(--radius, 12px);
   border: 1px solid var(--border);
-  overflow: hidden;
+  background: var(--bg);
+}
+
+.fp-canvas {
+  position: relative;
+  width: 1400px;
+  max-width: none;
+  height: 820px;
+  background: var(--bg);
 }
 
 .fp-table {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 58px;
+  height: 58px;
+  border-radius: 10px;
   background: #fff;
   border: 2px solid var(--border);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: 9.5px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
-  line-height: 1.15;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  line-height: 1.2;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
-.fp-table .fp-cap { font-size: 7.5px; font-weight: 500; color: var(--text-muted); }
+.fp-table .fp-cap { font-size: 10.5px; font-weight: 500; color: var(--text-muted); }
 
-.fp-table.zone-barra { border-radius: 50%; width: 30px; height: 30px; }
+.fp-table.zone-barra { border-radius: 50%; width: 46px; height: 46px; }
+.fp-table.zone-barra .fp-cap { display: none; }
+
+.fp-zone-label {
+  position: absolute;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface);
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+}
+
+.fp-feature {
+  position: absolute;
+  background: repeating-linear-gradient(45deg, #d8d5cc, #d8d5cc 4px, #cfccc2 4px, #cfccc2 8px);
+  border: 1px solid #b8b4a8;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #5c584e; text-transform: uppercase; letter-spacing: 0.03em;
+  text-align: center; padding: 2px;
+}
 
 .fp-table.status-busy { background: var(--brand); border-color: var(--brand); color: #fff; }
 .fp-table.status-busy .fp-cap { color: rgba(255,255,255,0.85); }

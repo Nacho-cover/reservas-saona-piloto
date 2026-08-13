@@ -59,27 +59,26 @@ const tx = db.transaction(() => {
     ['205', 1, 1], ['206', 1, 1], ['207', 1, 1],
   ];
 
-  // pos_x/pos_y (0-100, % del lienzo) reconstruyen a ojo la disposición del plano de
-  // Cover a partir de la captura que nos pasó el local (filas de mesas 7-8-9 arriba,
-  // las redondas 10-13 debajo, 1-6 emparejadas en dos filas, etc.). Cover no exporta
-  // coordenadas, así que esto es una aproximación visual, no una medida exacta — se
-  // puede reajustar mesa a mesa más adelante si no encaja con la sala real.
+  // pos_x/pos_y (0-100, % del lienzo) recalculadas a partir de la segunda captura del
+  // plano de Cover (más nítida, con medidas de distancias reales entre mesas). Cover
+  // no exporta coordenadas, así que esto sigue siendo una lectura a ojo de la imagen,
+  // no una medida exacta — se puede reajustar mesa a mesa más adelante si no encaja.
   // Las mesas 508-519 ocupan, en el plano de Cover, las posiciones que antes eran
   // 25 y 28-38 (los únicos números que faltan en el listado de "ID mesa"), así que
   // se colocan ahí; si esa suposición no es correcta basta con mover la mesa a mano.
   const salaInteriorPos = {
-    '7': [25, 22], '8': [16, 22], '9': [7, 22],
-    '13': [7, 40], '12': [15, 40], '11': [23, 40], '10': [31, 40],
-    '6': [45, 48], '4': [57, 48], '2': [65, 48],
-    '5': [45, 55], '3': [57, 55], '1': [65, 55],
-    '17': [5, 56], '16': [11, 56], '15': [19, 56], '14': [27, 56],
-    '18': [4, 66], '19': [4, 75], '20': [4, 84],
-    '21': [4, 94], '22': [12, 94], '23': [17, 94],
-    '24': [28, 94], '508': [33, 94], '26': [39, 94], '27': [45, 94],
-    '509': [51, 94], '510': [57, 94],
-    '511': [67, 94], '512': [73, 94], '513': [79, 94], '514': [84, 94],
-    '518': [23, 75], '517': [46, 75], '516': [58, 75], '515': [70, 75],
-    '519': [82, 17],
+    '9': [6, 14], '8': [15, 14], '7': [22, 14],
+    '519': [73, 10],
+    '13': [6, 33], '12': [14, 33], '11': [21, 33], '10': [28, 33],
+    '6': [40, 41], '4': [51, 41], '2': [58, 41],
+    '5': [40, 49], '3': [51, 49], '1': [58, 49],
+    '17': [5, 49], '16': [10, 49], '15': [17, 49], '14': [24, 49],
+    '18': [4, 61], '19': [4, 69], '20': [4, 78],
+    '518': [21, 69], '517': [41, 69], '516': [51, 69], '515': [62, 69],
+    '21': [4, 87], '22': [11, 87], '23': [16, 87],
+    '24': [25, 87], '508': [30, 87], '26': [35, 87], '27': [40, 87],
+    '509': [46, 87], '510': [51, 87],
+    '511': [60, 87], '512': [65, 87], '513': [71, 87], '514': [75, 87],
   };
   // La Barra es una zona/pestaña aparte en Cover: se coloca en su propia franja
   // arriba del lienzo para no solaparse con la Sala Interior.

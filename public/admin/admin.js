@@ -45,6 +45,8 @@ function renderFloorPlanView() {
   );
   renderFloorPlan($('floorPlanView'), state.tables, {
     getClass: (t) => (busyTableNames.has(t.name) ? 'status-busy' : ''),
+    features: SALA_INTERIOR_FEATURES,
+    zoneLabels: SALA_INTERIOR_ZONE_LABELS,
   });
 }
 
