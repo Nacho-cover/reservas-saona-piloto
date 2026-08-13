@@ -386,26 +386,39 @@ app.get('/api/tables', adminAuth.requireAdminAuth, requireRestaurant, (req, res)
 });
 
 app.post('/api/tables', adminAuth.requireAdminAuth, requireRestaurant, (req, res) => {
-  const { floorPlanId, zoneId, name, capacityMin, capacityMax } = req.body;
+  const { floorPlanId, zoneId, name, capacityMin, capacityMax, posX, posY } = req.body;
   if (!floorPlanId || !name || !capacityMax) {
     return res.status(400).json({ error: 'floorPlanId, name y capacityMax son obligatorios' });
   }
+  // Mesa nueva: se coloca en el centro del plano por defecto — se arrastra a su sitio
+  // en el plano visual justo después de crearla.
   const info = db.prepare(`
-    INSERT INTO tables (restaurant_id, floor_plan_id, zone_id, name, capacity_min, capacity_max, active)
-    VALUES (?,?,?,?,?,?,1)
-  `).run(req.restaurant.id, floorPlanId, zoneId || null, name, capacityMin || 1, capacityMax);
+    INSERT INTO tables (restaurant_id, floor_plan_id, zone_id, name, capacity_min, capacity_max, pos_x, pos_y, active)
+    VALUES (?,?,?,?,?,?,?,?,1)
+  `).run(req.restaurant.id, floorPlanId, zoneId || null, name, capacityMin || 1, capacityMax,
+         posX != null ? posX : 50, posY != null ? posY : 50);
   res.status(201).json(db.prepare('SELECT * FROM tables WHERE id = ?').get(info.lastInsertRowid));
 });
 
 app.patch('/api/tables/:id', adminAuth.requireAdminAuth, (req, res) => {
   const existing = db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Mesa no encontrada' });
-  const { name, zoneId, capacityMin, capacityMax } = req.body;
+  const body = req.body;
+  // A diferencia de COALESCE(?, campo) — que no distingue "no lo mandaron" de
+  // "lo mandaron como null" —, aquí cada campo solo se toca si viene en el body,
+  // así que zoneId: null (p. ej. "Sin zona" en el editor) sí la deja sin zona.
+  const next = {
+    name: 'name' in body ? body.name : existing.name,
+    zone_id: 'zoneId' in body ? body.zoneId : existing.zone_id,
+    capacity_min: 'capacityMin' in body && body.capacityMin != null ? body.capacityMin : existing.capacity_min,
+    capacity_max: 'capacityMax' in body && body.capacityMax != null ? body.capacityMax : existing.capacity_max,
+    pos_x: 'posX' in body && body.posX != null ? body.posX : existing.pos_x,
+    pos_y: 'posY' in body && body.posY != null ? body.posY : existing.pos_y,
+  };
   db.prepare(`
-    UPDATE tables SET name = COALESCE(?, name), zone_id = COALESCE(?, zone_id),
-      capacity_min = COALESCE(?, capacity_min), capacity_max = COALESCE(?, capacity_max)
+    UPDATE tables SET name = ?, zone_id = ?, capacity_min = ?, capacity_max = ?, pos_x = ?, pos_y = ?
     WHERE id = ?
-  `).run(name || null, zoneId || null, capacityMin || null, capacityMax || null, req.params.id);
+  `).run(next.name, next.zone_id, next.capacity_min, next.capacity_max, next.pos_x, next.pos_y, req.params.id);
   res.json(db.prepare('SELECT * FROM tables WHERE id = ?').get(req.params.id));
 });
 

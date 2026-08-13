@@ -20,7 +20,9 @@ const SALA_INTERIOR_ZONE_LABELS = [
 function renderFloorPlan(container, tables, opts = {}) {
   // opts.features: elementos fijos de la sala (escalera, muro, barra...) —
   // [{ x, y, w, h, label }], todo en % del lienzo. Pendiente de coordenadas reales.
-  const { getClass, features = [], zoneLabels = [] } = opts;
+  // opts.editable: si es true, las mesas se pueden arrastrar (llama a opts.onMove(table,
+  // x, y) al soltar) y un clic simple (sin arrastrar) llama a opts.onClick(table).
+  const { getClass, features = [], zoneLabels = [], editable = false, onMove, onClick } = opts;
   container.innerHTML = '';
   const withPos = tables.filter(t => t.pos_x != null && t.pos_y != null);
   if (!withPos.length) {
@@ -30,7 +32,7 @@ function renderFloorPlan(container, tables, opts = {}) {
   const scroll = document.createElement('div');
   scroll.className = 'fp-scroll';
   const canvas = document.createElement('div');
-  canvas.className = 'fp-canvas';
+  canvas.className = 'fp-canvas' + (editable ? ' fp-editable' : '');
 
   for (const f of features) {
     const el = document.createElement('div');
@@ -65,8 +67,57 @@ function renderFloorPlan(container, tables, opts = {}) {
     capEl.textContent = `${t.capacity_min}-${t.capacity_max}`;
     node.appendChild(nameEl);
     node.appendChild(capEl);
+    if (editable) attachDrag(node, canvas, t, { onMove, onClick });
     canvas.appendChild(node);
   }
   scroll.appendChild(canvas);
   container.appendChild(scroll);
+}
+
+// Arrastrar una mesa dentro del lienzo (ratón y táctil). Distingue un arrastre real
+// de un simple clic (umbral de 4px) para poder abrir el editor con un toque.
+function attachDrag(node, canvas, table, { onMove, onClick }) {
+  let dragging = false;
+  let startX, startY, moved;
+
+  const onDown = (clientX, clientY) => {
+    dragging = true;
+    moved = false;
+    startX = clientX;
+    startY = clientY;
+    node.classList.add('dragging');
+  };
+
+  const onMoveEvt = (clientX, clientY) => {
+    if (!dragging) return;
+    if (Math.abs(clientX - startX) > 4 || Math.abs(clientY - startY) > 4) moved = true;
+    const rect = canvas.getBoundingClientRect();
+    let x = ((clientX - rect.left) / rect.width) * 100;
+    let y = ((clientY - rect.top) / rect.height) * 100;
+    x = Math.max(0, Math.min(100, x));
+    y = Math.max(0, Math.min(100, y));
+    node.style.left = x + '%';
+    node.style.top = y + '%';
+  };
+
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    node.classList.remove('dragging');
+    if (moved) {
+      const x = parseFloat(node.style.left);
+      const y = parseFloat(node.style.top);
+      if (onMove) onMove(table, Math.round(x * 10) / 10, Math.round(y * 10) / 10);
+    } else if (onClick) {
+      onClick(table);
+    }
+  };
+
+  node.addEventListener('mousedown', (e) => { e.preventDefault(); onDown(e.clientX, e.clientY); });
+  window.addEventListener('mousemove', (e) => onMoveEvt(e.clientX, e.clientY));
+  window.addEventListener('mouseup', onUp);
+
+  node.addEventListener('touchstart', (e) => { const t = e.touches[0]; onDown(t.clientX, t.clientY); }, { passive: true });
+  window.addEventListener('touchmove', (e) => { if (dragging) { const t = e.touches[0]; onMoveEvt(t.clientX, t.clientY); } }, { passive: true });
+  window.addEventListener('touchend', onUp);
 }

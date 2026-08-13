@@ -90,6 +90,14 @@ async function loadPlanDetail() {
     getClass: (t) => (t.zoneName === 'Barra' ? 'zone-barra' : 'zone-sala'),
     features: SALA_INTERIOR_FEATURES,
     zoneLabels: SALA_INTERIOR_ZONE_LABELS,
+    editable: true,
+    onMove: async (table, x, y) => {
+      await api(`/api/tables/${table.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ posX: x, posY: y }),
+      });
+    },
+    onClick: openEditTableModal,
   });
 }
 
@@ -143,6 +151,63 @@ function renderTables() {
       <input type="checkbox" value="${t.id}"> ${escapeHtml(t.name)} (${t.capacity_max})
     </label></span>
   `).join('');
+}
+
+// Clic en una mesa del plano visual: editar nombre/zona/aforo (arrastrar la mueve,
+// esto la edita — ver attachDrag en floorplan.js, que distingue ambos gestos).
+function openEditTableModal(table) {
+  let backdrop = document.getElementById('editTableBackdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.id = 'editTableBackdrop';
+    backdrop.innerHTML = `
+      <div class="modal">
+        <h2>Editar mesa</h2>
+        <label class="field"><span>Nombre</span><input type="text" id="etName"></label>
+        <label class="field"><span>Zona</span><select id="etZone"></select></label>
+        <div class="field-row">
+          <label class="field"><span>Mín.</span><input type="number" id="etCapMin" min="1"></label>
+          <label class="field"><span>Máx.</span><input type="number" id="etCapMax" min="1"></label>
+        </div>
+        <p class="error" id="etError"></p>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="etCancelBtn" type="button">Cancelar</button>
+          <button class="btn btn-primary" id="etSaveBtn" type="button">Guardar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+    backdrop.querySelector('#etCancelBtn').addEventListener('click', () => backdrop.classList.add('hidden'));
+  }
+  backdrop.querySelector('#etZone').innerHTML = '<option value="">Sin zona</option>' +
+    state.zones.map(z => `<option value="${z.id}">${escapeHtml(z.name)}</option>`).join('');
+  backdrop.querySelector('#etName').value = table.name;
+  backdrop.querySelector('#etZone').value = table.zone_id || '';
+  backdrop.querySelector('#etCapMin').value = table.capacity_min;
+  backdrop.querySelector('#etCapMax').value = table.capacity_max;
+  backdrop.querySelector('#etError').textContent = '';
+  backdrop.classList.remove('hidden');
+
+  backdrop.querySelector('#etSaveBtn').onclick = async () => {
+    const errorEl = backdrop.querySelector('#etError');
+    try {
+      await api(`/api/tables/${table.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: backdrop.querySelector('#etName').value.trim(),
+          zoneId: backdrop.querySelector('#etZone').value || null,
+          capacityMin: Number(backdrop.querySelector('#etCapMin').value),
+          capacityMax: Number(backdrop.querySelector('#etCapMax').value),
+        }),
+      });
+      backdrop.classList.add('hidden');
+      await loadPlanDetail();
+      await loadPlans();
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  };
 }
 
 function renderCombos() {
