@@ -149,6 +149,15 @@ CREATE TABLE IF NOT EXISTS reservations (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Acceso al panel de personal (usuario/contraseña compartidos, no uno por persona).
+-- password_hash guarda "salt:hash" (scrypt), nunca la contraseña en claro.
+CREATE TABLE IF NOT EXISTS admin_credentials (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS reservation_tables (
   reservation_id INTEGER NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
   table_id INTEGER NOT NULL REFERENCES tables(id),
@@ -172,5 +181,17 @@ CREATE INDEX IF NOT EXISTS idx_floor_plan_schedule_date ON floor_plan_schedule(r
 const comboCols = db.prepare("PRAGMA table_info(table_combinations)").all().map(c => c.name);
 if (!comboCols.includes('capacity_min')) db.exec('ALTER TABLE table_combinations ADD COLUMN capacity_min INTEGER');
 if (!comboCols.includes('capacity_max')) db.exec('ALTER TABLE table_combinations ADD COLUMN capacity_max INTEGER');
+
+// Primer arranque: si no hay ninguna credencial de acceso al panel de personal,
+// se crea una por defecto (usuario/contraseña iniciales que el propio equipo puede
+// cambiar después desde el botón "Cambiar contraseña" del panel).
+const { count: adminCount } = db.prepare('SELECT COUNT(*) AS count FROM admin_credentials').get();
+if (adminCount === 0) {
+  const crypto = require('crypto');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync('123456', salt, 64).toString('hex');
+  db.prepare('INSERT INTO admin_credentials (username, password_hash) VALUES (?, ?)')
+    .run('ngarcia@gruposaona.com', `${salt}:${hash}`);
+}
 
 module.exports = db;

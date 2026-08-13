@@ -1,7 +1,7 @@
 const RESTAURANT_ID = 1;
 const $ = (id) => document.getElementById(id);
 
-const state = { date: todayISO(), reservations: [] };
+const state = { date: todayISO(), reservations: [], tables: [], shift: 'Comida' };
 
 function todayISO() {
   const d = new Date();
@@ -28,9 +28,24 @@ async function loadRestaurant() {
 }
 
 async function loadReservations() {
-  const res = await fetch(`/api/reservations?restaurantId=${RESTAURANT_ID}&date=${state.date}`);
-  state.reservations = await res.json();
+  const [resRes, tablesRes] = await Promise.all([
+    fetch(`/api/reservations?restaurantId=${RESTAURANT_ID}&date=${state.date}`),
+    fetch(`/api/tables?restaurantId=${RESTAURANT_ID}&date=${state.date}`),
+  ]);
+  state.reservations = await resRes.json();
+  state.tables = await tablesRes.json();
   render();
+}
+
+function renderFloorPlanView() {
+  const busyTableNames = new Set(
+    state.reservations
+      .filter(r => r.status !== 'cancelled' && shiftLabel(r.time) === state.shift)
+      .flatMap(r => r.tables || [])
+  );
+  renderFloorPlan($('floorPlanView'), state.tables, {
+    getClass: (t) => (busyTableNames.has(t.name) ? 'status-busy' : ''),
+  });
 }
 
 function render() {
@@ -44,6 +59,8 @@ function render() {
     if (!groups[key]) groups[key] = [];
     groups[key].push(r);
   }
+
+  renderFloorPlanView();
 
   const container = $('shiftColumns');
   container.innerHTML = '';
@@ -192,6 +209,9 @@ function shiftDate(days) {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
+  if (!(await guardAdminPage())) return;
+  renderSessionBar($('sessionBar'));
+
   $('dateFilter').value = state.date;
   await loadRestaurant();
   await loadReservations();
@@ -200,6 +220,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('prevDayBtn').addEventListener('click', () => shiftDate(-1));
   $('nextDayBtn').addEventListener('click', () => shiftDate(1));
   $('todayBtn').addEventListener('click', () => { state.date = todayISO(); $('dateFilter').value = state.date; loadReservations(); });
+
+  $('fpShiftToggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-shift]');
+    if (!btn) return;
+    state.shift = btn.dataset.shift;
+    $('fpShiftToggle').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+    renderFloorPlanView();
+  });
 
   $('openNewBtn').addEventListener('click', openModal);
   $('modalCancelBtn').addEventListener('click', closeModal);

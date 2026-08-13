@@ -6,6 +6,7 @@
 <title>Configuración de sala – Staff</title>
 <link rel="stylesheet" href="/admin/admin.css">
 <link rel="stylesheet" href="/admin/config.css">
+<link rel="stylesheet" href="/admin/floorplan.css">
 </head>
 <body>
 <div class="admin">
@@ -14,7 +15,10 @@
       <div class="admin-title" id="restaurantName">Configuración de sala</div>
       <div class="admin-sub">Planos, zonas, mesas y combinaciones</div>
     </div>
-    <a class="btn btn-secondary" href="/admin/">&larr; Volver a reservas</a>
+    <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap">
+      <div id="sessionBar"></div>
+      <a class="btn btn-secondary" href="/admin/">&larr; Volver a reservas</a>
+    </div>
   </header>
 
   <!-- Planos -->
@@ -37,6 +41,17 @@
     <div class="cfg-card-header">
       <h2>Editando plano:</h2>
       <select id="planSelect"></select>
+    </div>
+
+    <!-- Plano visual -->
+    <div class="cfg-col" style="margin-bottom:20px">
+      <h3>Plano visual</h3>
+      <div id="floorPlanView"></div>
+      <div class="fp-legend">
+        <span><span class="fp-legend-dot"></span>Sala Interior</span>
+        <span><span class="fp-legend-dot round"></span>Barra</span>
+      </div>
+      <p class="cfg-hint">Posición aproximada reconstruida a partir de la foto del plano de Cover — si alguna mesa no está bien colocada, se puede ajustar más adelante.</p>
     </div>
 
     <div class="cfg-columns">
@@ -115,6 +130,8 @@
   </div>
 </div>
 
+<script src="/admin/authbar.js"></script>
+<script src="/admin/floorplan.js"></script>
 <script src="/admin/config.js"></script>
 </body>
 </html>

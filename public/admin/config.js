@@ -86,6 +86,9 @@ async function loadPlanDetail() {
   renderZones();
   renderTables();
   renderCombos();
+  renderFloorPlan($('floorPlanView'), state.tables, {
+    getClass: (t) => (t.zoneName === 'Barra' ? 'zone-barra' : 'zone-sala'),
+  });
 }
 
 function renderZones() {
@@ -226,6 +229,9 @@ async function savePlan() {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
+  if (!(await guardAdminPage())) return;
+  renderSessionBar($('sessionBar'));
+
   await loadRestaurant();
   await loadPlans();
   await loadSchedule();

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acceso – Panel de personal</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login-card" id="loginForm">
+    <h1>Panel de personal</h1>
+    <p class="admin-sub">Saona Plaza España</p>
+    <label class="field"><span>Usuario (tu correo)</span><input type="email" id="loginUser" autocomplete="username" required></label>
+    <label class="field"><span>Contraseña</span><input type="password" id="loginPass" autocomplete="current-password" required></label>
+    <p class="error" id="loginError"></p>
+    <button class="btn btn-primary" type="submit" id="loginBtn">Entrar</button>
+  </form>
+</div>
+<script src="/admin/login.js"></script>
+</body>
+</html>
