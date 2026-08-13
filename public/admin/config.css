@@ -1,0 +1,52 @@
+.cfg-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  margin-bottom: 20px;
+}
+.cfg-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.cfg-card-header h2 { margin: 0; font-size: 17px; }
+.cfg-hint { font-size: 13px; color: var(--text-muted); margin: 4px 0 14px; line-height: 1.5; }
+
+.plans-list { display: flex; flex-direction: column; gap: 8px; }
+.plan-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
+}
+.plan-row .plan-name { font-weight: 600; flex: 1; }
+.plan-badge {
+  font-size: 11px; padding: 3px 8px; border-radius: 20px; font-weight: 600;
+  background: var(--brand-light); color: var(--brand-dark);
+}
+.plan-row .muted-small { font-size: 12px; color: var(--text-muted); }
+.plan-row button { border: none; background: none; cursor: pointer; font-size: 13px; color: var(--text-muted); padding: 4px 6px; border-radius: 6px; }
+.plan-row button:hover { background: var(--bg); }
+
+.cfg-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 8px; }
+.cfg-col h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); margin: 0 0 10px; }
+
+.chip-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 20px; border: 1px solid var(--border);
+  font-size: 13px; background: var(--bg);
+}
+.chip button { border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 13px; padding: 0; }
+.chip label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+.table-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.table-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 8px; font-size: 13px;
+}
+.table-row .t-name { font-weight: 600; min-width: 40px; }
+.table-row .t-meta { flex: 1; color: var(--text-muted); }
+.table-row button { border: none; background: none; cursor: pointer; color: var(--danger); font-size: 12px; }
+
+.inline-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.inline-form input, .inline-form select {
+  font-size: 14px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); font-family: inherit;
+}
+.inline-form input[type="text"] { flex: 1; min-width: 160px; }

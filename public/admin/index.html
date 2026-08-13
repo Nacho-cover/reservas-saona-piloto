@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel de reservas – Staff</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+<div class="admin">
+  <header class="admin-topbar">
+    <div>
+      <div class="admin-title" id="restaurantName">Panel de reservas</div>
+      <div class="admin-sub">Gestión del local</div>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center">
+      <a class="btn btn-secondary" href="/admin/config.html">Configuración de sala</a>
+      <button class="btn btn-primary" id="openNewBtn">+ Nueva reserva (teléfono)</button>
+    </div>
+  </header>
+
+  <div class="admin-controls">
+    <label class="field">
+      <span>Día</span>
+      <input type="date" id="dateFilter">
+    </label>
+    <div class="day-nav">
+      <button class="btn-icon" id="prevDayBtn">&larr;</button>
+      <button class="btn-icon" id="todayBtn">Hoy</button>
+      <button class="btn-icon" id="nextDayBtn">&rarr;</button>
+    </div>
+    <div class="stats" id="dayStats"></div>
+  </div>
+
+  <div class="shift-columns" id="shiftColumns"></div>
+</div>
+
+<!-- Modal: new / edit reservation -->
+<div class="modal-backdrop hidden" id="modalBackdrop">
+  <div class="modal">
+    <h2 id="modalTitle">Nueva reserva</h2>
+    <div class="field-row">
+      <label class="field"><span>Nombre</span><input type="text" id="mName"></label>
+      <label class="field"><span>Teléfono</span><input type="tel" id="mPhone"></label>
+    </div>
+    <div class="field-row">
+      <label class="field"><span>Fecha</span><input type="date" id="mDate"></label>
+      <label class="field"><span>Hora</span><input type="time" id="mTime" step="900"></label>
+      <label class="field"><span>Comensales</span><input type="number" id="mParty" min="1" value="2"></label>
+    </div>
+    <label class="field"><span>Notas</span><textarea id="mNotes" rows="2"></textarea></label>
+    <p class="error" id="modalError"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="modalCancelBtn">Cancelar</button>
+      <button class="btn btn-primary" id="modalSaveBtn">Guardar reserva</button>
+    </div>
+  </div>
+</div>
+
+<script src="/admin/admin.js"></script>
+</body>
+</html>

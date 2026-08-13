@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reservas – Saona Piloto</title>
+<meta name="theme-color" content="#1f4d3a">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/icon-192.svg">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">S</span>
+      <div>
+        <div class="brand-name" id="restaurantName">Cargando…</div>
+        <div class="brand-sub">Reserva tu mesa</div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- STEP 1: search -->
+    <section id="step-search" class="card step">
+      <h1>Reserva tu mesa</h1>
+      <div class="field-row">
+        <label class="field">
+          <span>Fecha</span>
+          <input type="date" id="dateInput">
+        </label>
+        <label class="field">
+          <span>Comensales</span>
+          <select id="partySizeInput"></select>
+        </label>
+      </div>
+      <button class="btn btn-primary" id="searchBtn">Ver disponibilidad</button>
+      <p class="error" id="searchError"></p>
+    </section>
+
+    <!-- STEP 2: slots -->
+    <section id="step-slots" class="card step hidden">
+      <button class="btn-link" id="backToSearch">&larr; Cambiar fecha / comensales</button>
+      <h2>Horas disponibles</h2>
+      <p class="muted" id="slotsSummary"></p>
+      <div id="shiftGroups"></div>
+      <p class="empty-msg hidden" id="noSlotsMsg">No quedan mesas libres ese día para ese número de comensales. Prueba otra fecha o llama al restaurante.</p>
+    </section>
+
+    <!-- STEP 3: contact form -->
+    <section id="step-form" class="card step hidden">
+      <button class="btn-link" id="backToSlots">&larr; Elegir otra hora</button>
+      <h2>Tus datos</h2>
+      <div id="formSummary"></div>
+      <label class="field">
+        <span>Nombre y apellidos</span>
+        <input type="text" id="nameInput" placeholder="Nombre">
+      </label>
+      <label class="field">
+        <span>Teléfono</span>
+        <input type="tel" id="phoneInput" placeholder="600 000 000">
+      </label>
+      <label class="field">
+        <span>Email (opcional)</span>
+        <input type="email" id="emailInput" placeholder="tu@email.com">
+      </label>
+      <label class="field">
+        <span>Notas (alergias, ocasión especial…)</span>
+        <textarea id="notesInput" rows="2" placeholder="Opcional"></textarea>
+      </label>
+      <label class="consent-field">
+        <input type="checkbox" id="consentInput">
+        <span>Acepto el tratamiento de mis datos para gestionar esta reserva y que el restaurante me contacte sobre ella. Ver <a href="#" id="legalLink">condiciones de uso y política de privacidad</a>.</span>
+      </label>
+      <button class="btn btn-primary" id="confirmBtn">Confirmar reserva</button>
+      <p class="error" id="formError"></p>
+    </section>
+
+    <!-- STEP 4: confirmation -->
+    <section id="step-confirm" class="card step hidden">
+      <div class="confirm-icon">✓</div>
+      <h2>¡Reserva confirmada!</h2>
+      <div class="confirm-box" id="confirmBox"></div>
+      <button class="btn btn-secondary" id="newReservationBtn">Hacer otra reserva</button>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span id="restaurantAddress"></span> · <span id="restaurantPhone"></span>
+  </footer>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

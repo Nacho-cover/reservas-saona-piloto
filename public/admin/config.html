@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configuración de sala – Staff</title>
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/admin/config.css">
+</head>
+<body>
+<div class="admin">
+  <header class="admin-topbar">
+    <div>
+      <div class="admin-title" id="restaurantName">Configuración de sala</div>
+      <div class="admin-sub">Planos, zonas, mesas y combinaciones</div>
+    </div>
+    <a class="btn btn-secondary" href="/admin/">&larr; Volver a reservas</a>
+  </header>
+
+  <!-- Planos -->
+  <section class="cfg-card">
+    <div class="cfg-card-header">
+      <h2>Planos de sala</h2>
+      <button class="btn btn-primary" id="newPlanBtn">+ Nuevo plano</button>
+    </div>
+    <p class="cfg-hint">
+      Un local puede tener varios planos (p. ej. uno estándar y otro para eventos con la
+      terraza reorganizada). Cambiar qué plano aplica un día — incluso uno que ya tiene
+      reservas — nunca modifica esas reservas: solo cambia qué mesas se ofrecen para
+      reservas nuevas a partir de ese momento.
+    </p>
+    <div id="plansList" class="plans-list"></div>
+  </section>
+
+  <!-- Selector de plano en edición -->
+  <section class="cfg-card">
+    <div class="cfg-card-header">
+      <h2>Editando plano:</h2>
+      <select id="planSelect"></select>
+    </div>
+
+    <div class="cfg-columns">
+      <!-- Zonas -->
+      <div class="cfg-col">
+        <h3>Zonas</h3>
+        <div id="zonesList" class="chip-list"></div>
+        <form id="zoneForm" class="inline-form">
+          <input type="text" id="zoneName" placeholder="Nombre de zona (p. ej. Terraza)" required>
+          <button class="btn btn-primary" type="submit">Añadir zona</button>
+        </form>
+      </div>
+
+      <!-- Mesas -->
+      <div class="cfg-col">
+        <h3>Mesas</h3>
+        <div id="tablesList" class="table-list"></div>
+        <form id="tableForm" class="inline-form">
+          <input type="text" id="tableName" placeholder="Nombre (p. ej. M6)" required>
+          <select id="tableZone"></select>
+          <input type="number" id="tableCapMin" placeholder="Mín." min="1" value="1" style="width:70px">
+          <input type="number" id="tableCapMax" placeholder="Máx." min="1" value="4" style="width:70px">
+          <button class="btn btn-primary" type="submit">Añadir mesa</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Combinaciones -->
+    <div class="cfg-col" style="margin-top:20px">
+      <h3>Combinaciones de mesas</h3>
+      <p class="cfg-hint">Selecciona 2 o más mesas de este plano que se puedan unir para grupos grandes. El aforo mín./máx. es opcional: si lo dejas en blanco, se calcula sumando el máximo de cada mesa; si lo indicas (como en Cover), manda ese número aunque no coincida con la suma.</p>
+      <div id="combosList" class="table-list"></div>
+      <form id="comboForm" class="inline-form" style="flex-wrap:wrap">
+        <input type="text" id="comboName" placeholder="Nombre (p. ej. M3+M4)" required style="flex-basis:100%">
+        <div id="comboTableChecks" class="chip-list"></div>
+        <input type="number" id="comboCapMin" placeholder="Aforo mín. (opcional)" min="1" style="width:150px">
+        <input type="number" id="comboCapMax" placeholder="Aforo máx. (opcional)" min="1" style="width:150px">
+        <button class="btn btn-primary" type="submit">Crear combinación</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Agenda -->
+  <section class="cfg-card">
+    <h2>Agenda: qué plano aplica cada día</h2>
+    <p class="cfg-hint">
+      Por defecto se usa el plano marcado "por defecto". Aquí puedes forzar un plano
+      distinto para un día concreto (p. ej. un evento), sin tocar ningún otro día.
+    </p>
+    <form id="scheduleForm" class="inline-form">
+      <input type="date" id="scheduleDate" required>
+      <select id="scheduleplan"></select>
+      <button class="btn btn-primary" type="submit">Asignar</button>
+    </form>
+    <div id="scheduleList" class="table-list" style="margin-top:12px"></div>
+  </section>
+</div>
+
+<!-- Modal: new plan -->
+<div class="modal-backdrop hidden" id="planModalBackdrop">
+  <div class="modal">
+    <h2>Nuevo plano</h2>
+    <label class="field"><span>Nombre</span><input type="text" id="newPlanName"></label>
+    <label class="field">
+      <span>Empezar a partir de</span>
+      <select id="newPlanCloneFrom">
+        <option value="">Vacío</option>
+      </select>
+    </label>
+    <p class="cfg-hint">Si eliges un plano existente, se copian sus zonas, mesas y combinaciones como punto de partida (puedes editarlas después sin afectar al plano original).</p>
+    <p class="error" id="planModalError"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="planModalCancelBtn">Cancelar</button>
+      <button class="btn btn-primary" id="planModalSaveBtn">Crear plano</button>
+    </div>
+  </div>
+</div>
+
+<script src="/admin/config.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: reservas-saona-piloto
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server/start-safe.js
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.0
+    disk:
+      name: reservas-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
