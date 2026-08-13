@@ -153,6 +153,23 @@ async function cancelReservation(id) {
 }
 
 // --- Modal: new reservation (phone) -----------------------------------
+// Desplegable en vez de <input type="time">: evita el selector nativo del
+// navegador (deja escoger cualquier minuto y "sobresale" de la ventana) y
+// solo permite tramos de 15 min, iguales a los que ya usa la reserva online.
+function populateTimeSelect() {
+  const sel = $('mTime');
+  sel.innerHTML = '<option value="">Elige una hora</option>';
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = value;
+      sel.appendChild(opt);
+    }
+  }
+}
+
 function openModal() {
   $('modalTitle').textContent = 'Nueva reserva (teléfono)';
   $('mName').value = '';
@@ -215,6 +232,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderSessionBar($('sessionBar'));
 
   $('dateFilter').value = state.date;
+  populateTimeSelect();
   await loadRestaurant();
   await loadReservations();
 
