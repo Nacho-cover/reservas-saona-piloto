@@ -54,6 +54,24 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
 }
 .res-badge.phone { background: #fff2d9; color: var(--warn); }
 .res-badge.cancelled { background: #fbe6e4; color: var(--danger); text-decoration: line-through; }
+
+/* Progreso del servicio en mesa — mismos colores en la etiqueta de la reserva y en la mesa del plano. */
+.res-badge.status-confirmed { background: #e2f3e6; color: #1e7a34; }
+.res-badge.status-seated    { background: #fdf1cf; color: #966b06; }
+.res-badge.status-eating    { background: #dde9fc; color: #1c56c9; }
+.res-badge.status-dessert   { background: #fbdcec; color: #b02d75; }
+.res-badge.status-paid      { background: #fbdad6; color: #a5301f; }
+
+.closure-bar {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px;
+  font-size: 13px; background: var(--bg); border: 1px solid var(--border);
+}
+.closure-bar.closed { background: #fbe6e4; border-color: #f0c4c0; color: var(--danger); }
+.closure-bar button {
+  border: none; border-radius: 6px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.closure-bar .btn-close-shift { background: var(--danger); color: #fff; }
+.closure-bar .btn-reopen-shift { background: var(--good, #1e8e5a); color: #fff; }
 .res-actions { display: flex; gap: 4px; }
 .res-actions button {
   border: none; background: none; cursor: pointer; font-size: 13px;

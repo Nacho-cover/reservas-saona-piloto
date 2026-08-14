@@ -1,7 +1,7 @@
 const RESTAURANT_ID = 1;
 const $ = (id) => document.getElementById(id);
 
-const state = { date: todayISO(), reservations: [], tables: [], shift: 'Comida', monthCursor: todayISO().slice(0, 7) };
+const state = { date: todayISO(), reservations: [], tables: [], closures: [], shift: 'Comida', monthCursor: todayISO().slice(0, 7) };
 
 function todayISO() {
   const d = new Date();
@@ -13,13 +13,19 @@ function shiftLabel(time) {
   return h < 18 ? 'Comida' : 'Cena';
 }
 
-const STATUS_LABELS = {
-  confirmed: 'Confirmada',
-  seated: 'Sentados',
-  completed: 'Completada',
-  cancelled: 'Cancelada',
-  no_show: 'No-show',
+// Progreso del servicio en mesa, con su color (igual que en Cover): cada estado
+// tiene el siguiente paso y, opcionalmente, la etiqueta del botón para avanzar.
+const STATUS_FLOW = {
+  confirmed: { label: 'Confirmada', color: 'status-confirmed', next: 'seated', nextLabel: 'Sentar' },
+  seated: { label: 'Sentada', color: 'status-seated', next: 'eating', nextLabel: 'Empezar a comer' },
+  eating: { label: 'Comiendo', color: 'status-eating', next: 'dessert', nextLabel: 'Postre' },
+  dessert: { label: 'Postre', color: 'status-dessert', next: 'paid', nextLabel: 'Pagar' },
+  paid: { label: 'Pagada', color: 'status-paid', next: 'completed', nextLabel: 'Completar' },
+  completed: { label: 'Completada', color: '', next: null },
+  cancelled: { label: 'Cancelada', color: '', next: null },
+  no_show: { label: 'No-show', color: '', next: null },
 };
+const STATUS_LABELS = Object.fromEntries(Object.entries(STATUS_FLOW).map(([k, v]) => [k, v.label]));
 
 async function loadRestaurant() {
   const res = await fetch(`/api/restaurants/${RESTAURANT_ID}`);
@@ -28,21 +34,68 @@ async function loadRestaurant() {
 }
 
 async function loadReservations() {
-  const [resRes, tablesRes] = await Promise.all([
+  const [resRes, tablesRes, closuresRes] = await Promise.all([
     fetch(`/api/reservations?restaurantId=${RESTAURANT_ID}&date=${state.date}`),
     fetch(`/api/tables?restaurantId=${RESTAURANT_ID}&date=${state.date}`),
+    fetch(`/api/closures?restaurantId=${RESTAURANT_ID}&date=${state.date}`),
   ]);
   state.reservations = await resRes.json();
   state.tables = await tablesRes.json();
+  state.closures = await closuresRes.json();
   render();
 }
 
+// --- Cerrar/abrir un turno concreto (deja de aceptar reservas online nuevas ese
+// turno; las ya hechas no se tocan) ----------------------------------------
+function renderClosureBar() {
+  const dayClosed = state.closures.find(c => c.shift === null);
+  const shiftClosure = state.closures.find(c => c.shift === state.shift);
+  const bar = $('closureBar');
+
+  if (dayClosed) {
+    bar.innerHTML = `<div class="closure-bar closed">🔒 Todo el día ${state.date} está cerrado a reservas nuevas.
+      <button class="btn-reopen-shift" id="reopenDayBtn">Reabrir el día</button></div>`;
+    $('reopenDayBtn').addEventListener('click', () => removeClosure(dayClosed.id));
+    return;
+  }
+
+  if (shiftClosure) {
+    bar.innerHTML = `<div class="closure-bar closed">🔒 Turno de ${state.shift} cerrado a reservas nuevas.
+      <button class="btn-reopen-shift" id="reopenShiftBtn">Reabrir ${state.shift}</button></div>`;
+    $('reopenShiftBtn').addEventListener('click', () => removeClosure(shiftClosure.id));
+  } else {
+    bar.innerHTML = `<div class="closure-bar">Turno de ${state.shift} abierto a reservas.
+      <button class="btn-close-shift" id="closeShiftBtn">Cerrar ${state.shift}</button></div>`;
+    $('closeShiftBtn').addEventListener('click', () => addClosure(state.shift));
+  }
+}
+
+async function addClosure(shift) {
+  await fetch('/api/closures', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ restaurantId: RESTAURANT_ID, date: state.date, shift }),
+  });
+  await loadReservations();
+}
+
+async function removeClosure(id) {
+  await fetch(`/api/closures/${id}`, { method: 'DELETE' });
+  await loadReservations();
+}
+
 function renderFloorPlanView() {
-  const shiftReservations = state.reservations.filter(r => r.status !== 'cancelled' && shiftLabel(r.time) === state.shift);
-  const busyTableNames = new Set(shiftReservations.flatMap(r => r.tables || []));
+  renderClosureBar();
+  const shiftReservations = state.reservations.filter(r => r.status !== 'cancelled' && r.status !== 'no_show' && shiftLabel(r.time) === state.shift);
+  const tableStatus = new Map();
+  shiftReservations.forEach(r => (r.tables || []).forEach(name => tableStatus.set(name, r.status)));
+  const busyTableNames = new Set(tableStatus.keys());
 
   renderFloorPlan($('floorPlanView'), state.tables, {
-    getClass: (t) => (busyTableNames.has(t.name) ? 'status-busy' : ''),
+    getClass: (t) => {
+      const status = tableStatus.get(t.name);
+      if (!status) return '';
+      return (STATUS_FLOW[status] && STATUS_FLOW[status].color) || 'status-busy';
+    },
     features: SALA_INTERIOR_FEATURES,
     zoneLabels: SALA_INTERIOR_ZONE_LABELS,
   });
@@ -131,18 +184,17 @@ function renderRow(r) {
     <div class="res-meta">${r.phone || ''} ${r.notes ? '· ' + escapeHtml(r.notes) : ''}</div>
   `;
 
+  const flow = STATUS_FLOW[r.status] || {};
   const badge = document.createElement('span');
-  badge.className = 'res-badge' + (r.source === 'phone' || r.source === 'admin' ? ' phone' : '') + (r.status === 'cancelled' ? ' cancelled' : '');
+  badge.className = 'res-badge' + (flow.color ? ' ' + flow.color : '') + (r.status === 'cancelled' ? ' cancelled' : '');
+  badge.title = STATUS_LABELS[r.status] || r.status;
   badge.textContent = r.status === 'confirmed' ? (r.source === 'phone' || r.source === 'admin' ? 'Tel.' : 'Web') : STATUS_LABELS[r.status];
 
   const actions = document.createElement('div');
   actions.className = 'res-actions';
   if (r.status !== 'cancelled' && r.status !== 'completed' && r.status !== 'no_show') {
-    if (r.status === 'confirmed') {
-      actions.appendChild(actionBtn('Sentar', () => updateStatus(r.id, 'seated')));
-    }
-    if (r.status === 'seated') {
-      actions.appendChild(actionBtn('Completar', () => updateStatus(r.id, 'completed')));
+    if (flow.next) {
+      actions.appendChild(actionBtn(flow.nextLabel, () => updateStatus(r.id, flow.next)));
     }
     actions.appendChild(actionBtn('Cancelar', () => cancelReservation(r.id)));
   }

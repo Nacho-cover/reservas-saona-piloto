@@ -123,6 +123,15 @@ app.post('/api/reservations', requireRestaurant, (req, res) => {
     if (!consentAccepted) {
       return res.status(400).json({ error: 'Debes aceptar las condiciones de tratamiento de datos para reservar.' });
     }
+    if (availability.isClosed(restaurant.id, date)) {
+      return res.status(409).json({ error: 'El restaurante está cerrado ese día. Elige otra fecha.' });
+    }
+    const requestedMinutes = availability.toMinutes(time);
+    const matchingShift = availability.getShiftsForDate(restaurant.id, date)
+      .find(s => requestedMinutes >= availability.toMinutes(s.start_time) && requestedMinutes <= availability.toMinutes(s.end_time));
+    if (matchingShift && availability.closedShifts(restaurant.id, date).has(matchingShift.name)) {
+      return res.status(409).json({ error: `El turno de ${matchingShift.name} no admite más reservas ese día. Elige otra hora.` });
+    }
   }
 
   const duration = restaurant.default_duration_minutes;
@@ -225,7 +234,7 @@ app.get('/api/reservations/summary', adminAuth.requireAdminAuth, requireRestaura
 // --- Reservations: update status (admin) ---------------------------------
 app.patch('/api/reservations/:id', adminAuth.requireAdminAuth, (req, res) => {
   const { status, notes } = req.body;
-  const allowed = ['confirmed', 'seated', 'completed', 'cancelled', 'no_show'];
+  const allowed = ['confirmed', 'seated', 'eating', 'dessert', 'paid', 'completed', 'cancelled', 'no_show'];
   const existing = db.prepare('SELECT * FROM reservations WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Reserva no encontrada' });
   if (status && !allowed.includes(status)) return res.status(400).json({ error: 'Estado no válido' });
@@ -246,6 +255,26 @@ app.delete('/api/reservations/:id', adminAuth.requireAdminAuth, (req, res) => {
 // --- Shifts (admin) ---------------------------------------------------------
 app.get('/api/shifts', adminAuth.requireAdminAuth, requireRestaurant, (req, res) => {
   res.json(db.prepare('SELECT * FROM shifts WHERE restaurant_id = ? ORDER BY day_of_week, start_time').all(req.restaurant.id));
+});
+
+// --- Cierres (día entero o un turno concreto) ---------------------------------
+app.get('/api/closures', adminAuth.requireAdminAuth, requireRestaurant, (req, res) => {
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ error: 'date es obligatorio' });
+  res.json(db.prepare('SELECT * FROM closures WHERE restaurant_id = ? AND date = ?').all(req.restaurant.id, date));
+});
+
+app.post('/api/closures', adminAuth.requireAdminAuth, requireRestaurant, (req, res) => {
+  const { date, shift, note } = req.body;
+  if (!date) return res.status(400).json({ error: 'date es obligatorio' });
+  const info = db.prepare('INSERT INTO closures (restaurant_id, date, shift, note) VALUES (?,?,?,?)')
+    .run(req.restaurant.id, date, shift || null, note || null);
+  res.status(201).json(db.prepare('SELECT * FROM closures WHERE id = ?').get(info.lastInsertRowid));
+});
+
+app.delete('/api/closures/:id', adminAuth.requireAdminAuth, (req, res) => {
+  db.prepare('DELETE FROM closures WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
 });
 
 // =========================================================================

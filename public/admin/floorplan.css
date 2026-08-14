@@ -64,6 +64,15 @@
 .fp-table.status-busy { background: var(--brand); border-color: var(--brand); color: #fff; }
 .fp-table.status-busy .fp-cap { color: rgba(255,255,255,0.85); }
 
+/* Progreso del servicio en mesa — mismos colores que las etiquetas de la lista de reservas. */
+.fp-table.status-confirmed { background: #2e7d32; border-color: #2e7d32; color: #fff; }
+.fp-table.status-seated    { background: #d6ab1c; border-color: #d6ab1c; color: #fff; }
+.fp-table.status-eating    { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+.fp-table.status-dessert   { background: #d6478f; border-color: #d6478f; color: #fff; }
+.fp-table.status-paid      { background: #c0392b; border-color: #c0392b; color: #fff; }
+.fp-table.status-confirmed .fp-cap, .fp-table.status-seated .fp-cap, .fp-table.status-eating .fp-cap,
+.fp-table.status-dessert .fp-cap, .fp-table.status-paid .fp-cap { color: rgba(255,255,255,0.85); }
+
 .fp-editable .fp-table { cursor: grab; user-select: none; touch-action: none; }
 .fp-editable .fp-table:hover { border-color: var(--brand); }
 .fp-editable .fp-table.dragging { cursor: grabbing; z-index: 5; box-shadow: 0 4px 10px rgba(0,0,0,0.2); opacity: 0.9; }

@@ -113,10 +113,13 @@ CREATE TABLE IF NOT EXISTS shifts (
   last_seating_offset_minutes INTEGER NOT NULL DEFAULT 0
 );
 
+-- shift NULL = cierra el día entero; shift = 'Comida'/'Cena' cierra solo ese turno
+-- (deja de ofrecerse para reservas nuevas; las ya hechas no se tocan).
 CREATE TABLE IF NOT EXISTS closures (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   restaurant_id INTEGER NOT NULL REFERENCES restaurants(id),
   date TEXT NOT NULL,
+  shift TEXT,
   note TEXT
 );
 
@@ -181,6 +184,10 @@ CREATE INDEX IF NOT EXISTS idx_floor_plan_schedule_date ON floor_plan_schedule(r
 const comboCols = db.prepare("PRAGMA table_info(table_combinations)").all().map(c => c.name);
 if (!comboCols.includes('capacity_min')) db.exec('ALTER TABLE table_combinations ADD COLUMN capacity_min INTEGER');
 if (!comboCols.includes('capacity_max')) db.exec('ALTER TABLE table_combinations ADD COLUMN capacity_max INTEGER');
+
+// Migración: cerrar un turno concreto (Comida/Cena) en vez de solo el día entero.
+const closureCols = db.prepare("PRAGMA table_info(closures)").all().map(c => c.name);
+if (!closureCols.includes('shift')) db.exec('ALTER TABLE closures ADD COLUMN shift TEXT');
 
 // Primer arranque: si no hay ninguna credencial de acceso al panel de personal,
 // se crea una por defecto (usuario/contraseña iniciales que el propio equipo puede

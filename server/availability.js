@@ -20,18 +20,29 @@ function getShiftsForDate(restaurantId, dateStr) {
 
 function isClosed(restaurantId, dateStr) {
   const row = db.prepare(
-    `SELECT 1 FROM closures WHERE restaurant_id = ? AND date = ?`
+    `SELECT 1 FROM closures WHERE restaurant_id = ? AND date = ? AND shift IS NULL`
   ).get(restaurantId, dateStr);
   return !!row;
+}
+
+// Turnos cerrados ese día (además del posible cierre del día entero) — deja de
+// ofrecerse ese turno para reservas nuevas, sin tocar las que ya existan.
+function closedShifts(restaurantId, dateStr) {
+  const rows = db.prepare(
+    `SELECT shift FROM closures WHERE restaurant_id = ? AND date = ? AND shift IS NOT NULL`
+  ).all(restaurantId, dateStr);
+  return new Set(rows.map(r => r.shift));
 }
 
 // Returns candidate time slots (HH:MM) for a given date based on shifts + slot interval,
 // leaving room for the reservation duration before the shift/last-seating cutoff.
 function candidateSlots(restaurant, dateStr) {
   if (isClosed(restaurant.id, dateStr)) return [];
+  const closed = closedShifts(restaurant.id, dateStr);
   const shifts = getShiftsForDate(restaurant.id, dateStr);
   const slots = [];
   for (const shift of shifts) {
+    if (closed.has(shift.name)) continue;
     const start = toMinutes(shift.start_time);
     const lastSeating = toMinutes(shift.end_time) - (shift.last_seating_offset_minutes || 0);
     for (let t = start; t <= lastSeating; t += restaurant.slot_interval_minutes) {
@@ -317,7 +328,7 @@ function validateChosenTables(restaurantId, dateStr, tableIds, startMinutes, dur
 }
 
 module.exports = {
-  toMinutes, toHHMM, getShiftsForDate, isClosed, candidateSlots,
+  toMinutes, toHHMM, getShiftsForDate, isClosed, closedShifts, candidateSlots,
   findAvailableTable, getAvailability, getActiveTables,
   getCapacityCapsForDay, findCapForMinute, hasCapacityRoom,
   resolveFloorPlanId, getCombinationsForDate,
