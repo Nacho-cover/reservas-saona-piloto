@@ -58,7 +58,7 @@ function tableBusyRanges(restaurantId, tableId, dateStr, bufferMinutes, excludeR
   let rows;
   if (excludeReservationId) {
     rows = db.prepare(`
-      SELECT r.time, r.duration_minutes, r.id
+      SELECT r.time, r.duration_minutes, r.id, r.paid_at
       FROM reservations r
       JOIN reservation_tables rt ON rt.reservation_id = r.id
       WHERE r.restaurant_id = ? AND rt.table_id = ? AND r.date = ?
@@ -67,7 +67,7 @@ function tableBusyRanges(restaurantId, tableId, dateStr, bufferMinutes, excludeR
     `).all(restaurantId, tableId, dateStr, excludeReservationId);
   } else {
     rows = db.prepare(`
-      SELECT r.time, r.duration_minutes, r.id
+      SELECT r.time, r.duration_minutes, r.id, r.paid_at
       FROM reservations r
       JOIN reservation_tables rt ON rt.reservation_id = r.id
       WHERE r.restaurant_id = ? AND rt.table_id = ? AND r.date = ?
@@ -76,7 +76,14 @@ function tableBusyRanges(restaurantId, tableId, dateStr, bufferMinutes, excludeR
   }
   return rows.map(r => {
     const start = toMinutes(r.time);
-    const end = start + r.duration_minutes + bufferMinutes;
+    let end = start + r.duration_minutes + bufferMinutes;
+    // Si ya se marcó "Pagada" ese mismo día, la mesa se libera 2 min después de eso
+    // en vez de esperar a que acabe la duración estándar de la reserva.
+    if (r.paid_at && r.paid_at.slice(0, 10) === dateStr) {
+      const [ph, pm] = r.paid_at.slice(11, 16).split(':').map(Number);
+      const paidEnd = Math.max(start, ph * 60 + pm) + 2;
+      end = Math.min(end, paidEnd);
+    }
     return { start, end, reservationId: r.id };
   });
 }

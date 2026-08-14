@@ -239,8 +239,12 @@ app.patch('/api/reservations/:id', adminAuth.requireAdminAuth, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Reserva no encontrada' });
   if (status && !allowed.includes(status)) return res.status(400).json({ error: 'Estado no válido' });
 
-  db.prepare('UPDATE reservations SET status = COALESCE(?, status), notes = COALESCE(?, notes) WHERE id = ?')
-    .run(status || null, notes ?? null, req.params.id);
+  // Al pasar a "Pagada" se guarda el momento exacto: la mesa se libera 2 min después
+  // de esto (ver availability.tableBusyRanges), no al terminar la duración estándar.
+  const paidAt = (status === 'paid' && existing.status !== 'paid') ? dayjs().format('YYYY-MM-DD HH:mm:ss') : null;
+
+  db.prepare('UPDATE reservations SET status = COALESCE(?, status), notes = COALESCE(?, notes), paid_at = COALESCE(?, paid_at) WHERE id = ?')
+    .run(status || null, notes ?? null, paidAt, req.params.id);
   res.json(db.prepare('SELECT * FROM reservations WHERE id = ?').get(req.params.id));
 });
 

@@ -145,11 +145,13 @@ CREATE TABLE IF NOT EXISTS reservations (
   date TEXT NOT NULL,
   time TEXT NOT NULL,
   duration_minutes INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'confirmed', -- confirmed, seated, completed, cancelled, no_show
+  status TEXT NOT NULL DEFAULT 'confirmed', -- confirmed, seated, eating, dessert, paid, completed, cancelled, no_show
   source TEXT NOT NULL DEFAULT 'web', -- web, app, phone, admin
   notes TEXT,
   consent_accepted INTEGER NOT NULL DEFAULT 0, -- RGPD: consentimiento de tratamiento de datos (reservas web)
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  paid_at TEXT -- cuándo pasó a "Pagada" (hora local, igual criterio que date/time) — la mesa se
+               -- libera 2 min después de esto en vez de esperar a la duración estándar
 );
 
 -- Acceso al panel de personal (usuario/contraseña compartidos, no uno por persona).
@@ -188,6 +190,10 @@ if (!comboCols.includes('capacity_max')) db.exec('ALTER TABLE table_combinations
 // Migración: cerrar un turno concreto (Comida/Cena) en vez de solo el día entero.
 const closureCols = db.prepare("PRAGMA table_info(closures)").all().map(c => c.name);
 if (!closureCols.includes('shift')) db.exec('ALTER TABLE closures ADD COLUMN shift TEXT');
+
+// Migración: liberar la mesa 2 min después de marcarla "Pagada".
+const reservationCols = db.prepare("PRAGMA table_info(reservations)").all().map(c => c.name);
+if (!reservationCols.includes('paid_at')) db.exec('ALTER TABLE reservations ADD COLUMN paid_at TEXT');
 
 // Primer arranque: si no hay ninguna credencial de acceso al panel de personal,
 // se crea una por defecto (usuario/contraseña iniciales que el propio equipo puede
