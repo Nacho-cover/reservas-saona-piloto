@@ -5,6 +5,8 @@ const dayjs = require('dayjs');
 const db = require('./db');
 const availability = require('./availability');
 const adminAuth = require('./adminAuth');
+const { sendConfirmationEmail } = require('./email');
+const { verifySurveyToken, sendSurveyEmail } = require('./survey');
 
 const app = express();
 app.use(cors());
@@ -123,6 +125,9 @@ app.post('/api/reservations', requireRestaurant, (req, res) => {
     if (!consentAccepted) {
       return res.status(400).json({ error: 'Debes aceptar las condiciones de tratamiento de datos para reservar.' });
     }
+    if (!email) {
+      return res.status(400).json({ error: 'Indica un email para poder enviarte la confirmación de la reserva.' });
+    }
     if (availability.isClosed(restaurant.id, date)) {
       return res.status(409).json({ error: 'El restaurante está cerrado ese día. Elige otra fecha.' });
     }
@@ -198,6 +203,13 @@ app.post('/api/reservations', requireRestaurant, (req, res) => {
   db.prepare('SELECT id, name FROM zones WHERE restaurant_id = ?').all(restaurant.id)
     .forEach(z => { zoneNameById[z.id] = z.name; });
   const zoneNames = [...new Set(tables.map(t => zoneNameById[t.zone_id]).filter(Boolean))];
+
+  // No se espera a que termine de enviarse (la reserva ya está confirmada y no debe
+  // depender de que el email salga bien o mal) — se manda en paralelo a responder.
+  if (bookingSource === 'web' || bookingSource === 'app') {
+    sendConfirmationEmail({ restaurant, reservation, zoneNames }).catch(() => {});
+  }
+
   res.status(201).json({ ...reservation, tables: tables.map(t => t.name), zoneNames });
 });
 
@@ -523,6 +535,83 @@ app.post('/api/combinations', adminAuth.requireAdminAuth, requireRestaurant, (re
 app.delete('/api/combinations/:id', adminAuth.requireAdminAuth, (req, res) => {
   db.prepare('DELETE FROM table_combinations WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// --- Encuesta de satisfacción del día después ------------------------------
+
+// Disparador diario externo (GitHub Actions) — protegido por un secreto compartido,
+// no por sesión de personal, porque quien llama es un robot, no una persona con login.
+app.get('/api/cron/send-surveys', async (req, res) => {
+  if (!process.env.CRON_SECRET || req.query.key !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+  const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const yesterday = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+  const restaurants = db.prepare('SELECT * FROM restaurants').all();
+  const results = [];
+  for (const restaurant of restaurants) {
+    const rows = db.prepare(`
+      SELECT * FROM reservations
+      WHERE restaurant_id = ? AND date = ? AND status NOT IN ('cancelled','no_show')
+        AND email IS NOT NULL AND survey_sent_at IS NULL
+    `).all(restaurant.id, yesterday);
+    for (const reservation of rows) {
+      const result = await sendSurveyEmail({ restaurant, reservation, baseUrl });
+      if (result.ok) {
+        db.prepare("UPDATE reservations SET survey_sent_at = datetime('now') WHERE id = ?").run(reservation.id);
+      }
+      results.push({ reservationId: reservation.id, email: reservation.email, ...result });
+    }
+  }
+  res.json({ date: yesterday, sent: results.filter(r => r.ok).length, results });
+});
+
+// --- Encuesta: consultar (verifica el token) y responder (público, sin login) ---
+app.get('/api/survey/:id', (req, res) => {
+  const reservation = db.prepare('SELECT * FROM reservations WHERE id = ?').get(req.params.id);
+  if (!reservation || !verifySurveyToken(reservation.id, req.query.t)) {
+    return res.status(404).json({ error: 'Encuesta no encontrada' });
+  }
+  const restaurant = db.prepare('SELECT name FROM restaurants WHERE id = ?').get(reservation.restaurant_id);
+  const already = db.prepare('SELECT 1 FROM survey_responses WHERE reservation_id = ?').get(reservation.id);
+  res.json({
+    restaurantName: restaurant ? restaurant.name : '',
+    date: reservation.date,
+    customerName: reservation.customer_name,
+    alreadyAnswered: !!already,
+  });
+});
+
+app.post('/api/survey/:id', (req, res) => {
+  const reservation = db.prepare('SELECT * FROM reservations WHERE id = ?').get(req.params.id);
+  if (!reservation || !verifySurveyToken(reservation.id, req.body.token)) {
+    return res.status(404).json({ error: 'Encuesta no encontrada' });
+  }
+  const { ratingGeneral, ratingComida, ratingServicio, comentario } = req.body;
+  if (![ratingGeneral, ratingComida, ratingServicio].every(n => Number.isInteger(n) && n >= 1 && n <= 5)) {
+    return res.status(400).json({ error: 'Las valoraciones deben ser un número entero de 1 a 5.' });
+  }
+  try {
+    db.prepare(`
+      INSERT INTO survey_responses (reservation_id, rating_general, rating_comida, rating_servicio, comentario)
+      VALUES (?,?,?,?,?)
+    `).run(reservation.id, ratingGeneral, ratingComida, ratingServicio, comentario || null);
+  } catch (err) {
+    return res.status(409).json({ error: 'Ya se respondió esta encuesta.' });
+  }
+  res.status(201).json({ ok: true });
+});
+
+// --- Respuestas de la encuesta (panel de personal) --------------------------
+app.get('/api/survey-responses', adminAuth.requireAdminAuth, requireRestaurant, (req, res) => {
+  const rows = db.prepare(`
+    SELECT sr.*, r.customer_name, r.date AS reservation_date, r.party_size
+    FROM survey_responses sr
+    JOIN reservations r ON r.id = sr.reservation_id
+    WHERE r.restaurant_id = ?
+    ORDER BY sr.created_at DESC
+  `).all(req.restaurant.id);
+  res.json(rows);
 });
 
 const PORT = process.env.PORT || 3000;

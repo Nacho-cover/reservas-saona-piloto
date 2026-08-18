@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>¿Qué tal tu visita?</title>
+<style>
+  :root {
+    --brand: #1f4d3a; --brand-dark: #163627; --brand-light: #e8f0ea;
+    --bg: #f7f6f3; --surface: #ffffff; --text: #1c1c1c; --text-muted: #6b6b6b;
+    --border: #e2e0da; --danger: #b3261e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  .wrap { max-width: 440px; margin: 0 auto; min-height: 100vh; padding: 24px 16px; }
+  .card { background: var(--surface); border-radius: 14px; padding: 24px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  h1 { font-size: 20px; margin: 0 0 4px; color: var(--brand-dark); }
+  .sub { color: var(--text-muted); font-size: 14px; margin: 0 0 22px; }
+  .field { margin-bottom: 20px; }
+  .field label { display: block; font-weight: 600; font-size: 14.5px; margin-bottom: 8px; }
+  .stars { display: flex; gap: 6px; }
+  .stars button {
+    background: none; border: none; font-size: 30px; line-height: 1; cursor: pointer; padding: 2px;
+    color: var(--border); transition: color 0.1s;
+  }
+  .stars button.filled { color: #e0a815; }
+  textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+    font-family: inherit; font-size: 14.5px; resize: vertical; min-height: 70px;
+  }
+  .btn { width: 100%; padding: 14px; border: none; border-radius: 8px; background: var(--brand); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; }
+  .btn:disabled { background: #a9b8b0; cursor: not-allowed; }
+  .error { color: var(--danger); font-size: 13.5px; min-height: 18px; margin-top: 10px; }
+  .center { text-align: center; padding: 30px 10px; }
+  .center .icon { font-size: 40px; margin-bottom: 10px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div id="loadingView">Cargando…</div>
+
+    <div id="formView" class="hidden">
+      <h1 id="title">¿Qué tal tu visita?</h1>
+      <p class="sub" id="subtitle"></p>
+
+      <div class="field">
+        <label>Valoración general</label>
+        <div class="stars" data-field="ratingGeneral"></div>
+      </div>
+      <div class="field">
+        <label>La comida</label>
+        <div class="stars" data-field="ratingComida"></div>
+      </div>
+      <div class="field">
+        <label>El servicio</label>
+        <div class="stars" data-field="ratingServicio"></div>
+      </div>
+      <div class="field">
+        <label>¿Algo que quieras contarnos? (opcional)</label>
+        <textarea id="comentario" placeholder="Tu opinión nos ayuda a mejorar"></textarea>
+      </div>
+      <button class="btn" id="submitBtn">Enviar valoración</button>
+      <p class="error" id="formError"></p>
+    </div>
+
+    <div id="doneView" class="hidden center">
+      <div class="icon">✓</div>
+      <h1>¡Gracias!</h1>
+      <p class="sub">Tu opinión ya ha llegado al restaurante.</p>
+    </div>
+
+    <div id="invalidView" class="hidden center">
+      <div class="icon">😕</div>
+      <h1>Enlace no válido</h1>
+      <p class="sub">Este enlace de encuesta no es correcto o ya ha caducado.</p>
+    </div>
+  </div>
+</div>
+<script src="/encuesta.js"></script>
+</body>
+</html>

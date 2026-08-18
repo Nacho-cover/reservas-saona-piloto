@@ -1,0 +1,17 @@
+name: Enviar encuestas de satisfacción
+
+# Se ejecuta una vez al día (10:00 UTC ≈ 11:00-12:00 hora de España según horario de
+# verano) y llama al endpoint que manda la encuesta a quien reservó el día anterior.
+# También se puede lanzar a mano desde la pestaña "Actions" de GitHub si hace falta.
+on:
+  schedule:
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+
+jobs:
+  send-surveys:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar al endpoint de encuestas
+        run: |
+          curl -sf "https://reservas-saona-piloto.onrender.com/api/cron/send-surveys?key=${{ secrets.CRON_SECRET }}"

@@ -150,8 +150,29 @@ CREATE TABLE IF NOT EXISTS reservations (
   notes TEXT,
   consent_accepted INTEGER NOT NULL DEFAULT 0, -- RGPD: consentimiento de tratamiento de datos (reservas web)
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  paid_at TEXT -- cuándo pasó a "Pagada" (hora local, igual criterio que date/time) — la mesa se
-               -- libera 2 min después de esto en vez de esperar a la duración estándar
+  paid_at TEXT, -- cuándo pasó a "Pagada" (hora local, igual criterio que date/time) — la mesa se
+                -- libera 2 min después de esto en vez de esperar a la duración estándar
+  survey_sent_at TEXT -- cuándo se envió la encuesta de satisfacción (evita reenviarla dos veces)
+);
+
+-- Almacén genérico clave/valor para secretos internos generados por la propia app
+-- (p. ej. el secreto para firmar los enlaces de la encuesta) — nunca hace falta que
+-- nadie los configure a mano, se generan solos la primera vez que arranca el servidor.
+CREATE TABLE IF NOT EXISTS app_secrets (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Respuestas a la encuesta de satisfacción del día después (una por reserva).
+CREATE TABLE IF NOT EXISTS survey_responses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reservation_id INTEGER NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+  rating_general INTEGER NOT NULL,
+  rating_comida INTEGER NOT NULL,
+  rating_servicio INTEGER NOT NULL,
+  comentario TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(reservation_id)
 );
 
 -- Acceso al panel de personal (usuario/contraseña compartidos, no uno por persona).
@@ -194,6 +215,7 @@ if (!closureCols.includes('shift')) db.exec('ALTER TABLE closures ADD COLUMN shi
 // Migración: liberar la mesa 2 min después de marcarla "Pagada".
 const reservationCols = db.prepare("PRAGMA table_info(reservations)").all().map(c => c.name);
 if (!reservationCols.includes('paid_at')) db.exec('ALTER TABLE reservations ADD COLUMN paid_at TEXT');
+if (!reservationCols.includes('survey_sent_at')) db.exec('ALTER TABLE reservations ADD COLUMN survey_sent_at TEXT');
 
 // Primer arranque: si no hay ninguna credencial de acceso al panel de personal,
 // se crea una por defecto (usuario/contraseña iniciales que el propio equipo puede
@@ -205,6 +227,15 @@ if (adminCount === 0) {
   const hash = crypto.scryptSync('123456', salt, 64).toString('hex');
   db.prepare('INSERT INTO admin_credentials (username, password_hash) VALUES (?, ?)')
     .run('ngarcia@gruposaona.com', `${salt}:${hash}`);
+}
+
+// Secreto para firmar los enlaces de la encuesta de satisfacción (evita que alguien
+// pueda adivinar la URL de la encuesta de otra reserva) — se genera solo una vez.
+const surveySecretRow = db.prepare("SELECT value FROM app_secrets WHERE key = 'survey_token_secret'").get();
+if (!surveySecretRow) {
+  const crypto = require('crypto');
+  db.prepare('INSERT INTO app_secrets (key, value) VALUES (?, ?)')
+    .run('survey_token_secret', crypto.randomBytes(32).toString('hex'));
 }
 
 // Mantiene pos_x/pos_y de las mesas de Plaza España al día en cada arranque (incluidos
