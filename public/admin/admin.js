@@ -3,9 +3,18 @@ const $ = (id) => document.getElementById(id);
 
 const state = { date: todayISO(), reservations: [], tables: [], closures: [], shift: 'Comida', monthCursor: todayISO().slice(0, 7) };
 
+// OJO: nunca usar Date.toISOString() aquí — convierte a UTC, y con la zona horaria
+// de España (UTC+1/+2) eso desplaza la fecha un día hacia atrás. Hay que formatear
+// con los componentes de fecha LOCALES.
+function toLocalISO(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function todayISO() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+  return toLocalISO(new Date());
 }
 
 function shiftLabel(time) {
@@ -325,7 +334,7 @@ async function saveModal() {
 function shiftDate(days) {
   const d = new Date(state.date + 'T00:00:00');
   d.setDate(d.getDate() + days);
-  state.date = d.toISOString().slice(0, 10);
+  state.date = toLocalISO(d);
   $('dateFilter').value = state.date;
   loadReservations();
 }

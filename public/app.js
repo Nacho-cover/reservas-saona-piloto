@@ -14,9 +14,15 @@ function showStep(id) {
   $(id).classList.remove('hidden');
 }
 
+// Nunca usar Date.toISOString() aquí: convierte a UTC y con husos horarios por
+// delante de UTC (como España) desplaza la fecha un día hacia atrás cerca de
+// medianoche. Hay que formatear con los componentes de fecha locales.
 function todayISO() {
   const d = new Date();
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 async function loadRestaurant() {
