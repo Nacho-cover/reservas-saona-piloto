@@ -1,7 +1,11 @@
 // Posiciones (0-100, % del lienzo) de las mesas reales de Plaza España, leídas de la
 // foto del plano de Cover. Compartido por seed.js (primer arranque) y db.js (migración
 // segura que actualiza solo pos_x/pos_y sin tocar reservas ni el resto de datos).
-const SALA_INTERIOR_POS = {
+// Las claves están en la numeración ORIGINAL de Cover (con huecos y el salto a
+// 508-519); se renumeran correlativas (1-38) al final del archivo.
+const { renombrar } = require('./tableRenumbering');
+
+const SALA_INTERIOR_POS_COVER = {
   '9': [6, 14], '8': [15, 14], '7': [22, 14],
   '519': [73, 10],
   '13': [6, 33], '12': [14, 33], '11': [21, 33], '10': [28, 33],
@@ -15,6 +19,10 @@ const SALA_INTERIOR_POS = {
   '509': [46, 87], '510': [51, 87],
   '511': [60, 87], '512': [65, 87], '513': [71, 87], '514': [75, 87],
 };
+
+const SALA_INTERIOR_POS = Object.fromEntries(
+  Object.entries(SALA_INTERIOR_POS_COVER).map(([nombre, pos]) => [renombrar(nombre), pos])
+);
 
 const BARRA_POS = {
   '201': [30, 3], '202': [38, 3], '203': [46, 3], '204': [54, 3],

@@ -231,13 +231,21 @@ app.get('/api/reservations', adminAuth.requireAdminAuth, requireRestaurant, asyn
   } else {
     ({ rows } = await db.query('SELECT * FROM reservations WHERE restaurant_id = $1 ORDER BY date DESC, time', [req.restaurant.id]));
   }
-  const withTables = await Promise.all(rows.map(async (r) => {
-    const { rows: tableRows } = await db.query(
-      `SELECT t.name FROM reservation_tables rt JOIN tables t ON t.id = rt.table_id WHERE rt.reservation_id = $1`, [r.id]
-    );
-    return { ...r, tables: tableRows.map(t => t.name) };
-  }));
-  res.json(withTables);
+  if (!rows.length) return res.json([]);
+  // Una sola consulta con IN(...) para todas las reservas del día, en vez de una
+  // por reserva (con muchas reservas a la vez, el pooler de Supabase tiene un
+  // límite de conexiones concurrentes que un Promise.all por fila puede agotar).
+  const ids = rows.map(r => r.id);
+  const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+  const { rows: tableRows } = await db.query(`
+    SELECT rt.reservation_id, t.name FROM reservation_tables rt JOIN tables t ON t.id = rt.table_id
+    WHERE rt.reservation_id IN (${placeholders})
+  `, ids);
+  const tablesByReservation = {};
+  for (const tr of tableRows) {
+    (tablesByReservation[tr.reservation_id] = tablesByReservation[tr.reservation_id] || []).push(tr.name);
+  }
+  res.json(rows.map(r => ({ ...r, tables: tablesByReservation[r.id] || [] })));
 });
 
 // Resumen por día (para la vista mensual) — cuántas reservas y comensales hay cada
@@ -367,11 +375,13 @@ app.delete('/api/closures/:id', adminAuth.requireAdminAuth, async (req, res) => 
 // --- Floor plans -----------------------------------------------------------
 app.get('/api/floor-plans', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
   const { rows: plans } = await db.query('SELECT * FROM floor_plans WHERE restaurant_id = $1 ORDER BY is_default DESC, name', [req.restaurant.id]);
-  const withCounts = await Promise.all(plans.map(async (p) => {
-    const { rows } = await db.query('SELECT COUNT(*)::int AS c FROM tables WHERE floor_plan_id = $1 AND active = 1', [p.id]);
-    return { ...p, tableCount: rows[0].c };
-  }));
-  res.json(withCounts);
+  const { rows: counts } = await db.query(
+    'SELECT floor_plan_id, COUNT(*)::int AS c FROM tables WHERE restaurant_id = $1 AND active = 1 GROUP BY floor_plan_id',
+    [req.restaurant.id]
+  );
+  const countByPlan = {};
+  counts.forEach(row => { countByPlan[row.floor_plan_id] = row.c; });
+  res.json(plans.map(p => ({ ...p, tableCount: countByPlan[p.id] || 0 })));
 });
 
 app.post('/api/floor-plans', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
@@ -516,14 +526,13 @@ app.delete('/api/zones/:id', adminAuth.requireAdminAuth, async (req, res) => {
 app.get('/api/tables', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
   const { floorPlanId, date } = req.query;
   const planId = floorPlanId || await availability.resolveFloorPlanId(req.restaurant.id, date || dayjs().format('YYYY-MM-DD'));
-  const { rows } = await db.query('SELECT * FROM tables WHERE restaurant_id = $1 AND floor_plan_id = $2 AND active = 1 ORDER BY name',
-    [req.restaurant.id, planId]);
-  const withZoneName = await Promise.all(rows.map(async (t) => {
-    if (!t.zone_id) return { ...t, zoneName: null };
-    const { rows: zoneRows } = await db.query('SELECT name FROM zones WHERE id = $1', [t.zone_id]);
-    return { ...t, zoneName: zoneRows[0] ? zoneRows[0].name : null };
-  }));
-  res.json(withZoneName);
+  const { rows } = await db.query(`
+    SELECT t.*, z.name AS "zoneName" FROM tables t
+    LEFT JOIN zones z ON z.id = t.zone_id
+    WHERE t.restaurant_id = $1 AND t.floor_plan_id = $2 AND t.active = 1
+    ORDER BY t.name
+  `, [req.restaurant.id, planId]);
+  res.json(rows);
 });
 
 app.post('/api/tables', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
@@ -579,17 +588,24 @@ app.get('/api/combinations', adminAuth.requireAdminAuth, requireRestaurant, asyn
   if (!floorPlanId) return res.status(400).json({ error: 'floorPlanId es obligatorio' });
   const { rows: combos } = await db.query('SELECT * FROM table_combinations WHERE restaurant_id = $1 AND floor_plan_id = $2 AND active = 1',
     [req.restaurant.id, floorPlanId]);
-  const withTables = await Promise.all(combos.map(async (c) => {
-    const { rows: tables } = await db.query(`
-      SELECT t.id, t.name, t.capacity_max FROM table_combination_members tcm
-      JOIN tables t ON t.id = tcm.table_id WHERE tcm.combination_id = $1
-    `, [c.id]);
+  if (!combos.length) return res.json([]);
+
+  const comboIds = combos.map(c => c.id);
+  const placeholders = comboIds.map((_, i) => `$${i + 1}`).join(',');
+  const { rows: allMembers } = await db.query(`
+    SELECT tcm.combination_id, t.id, t.name, t.capacity_max FROM table_combination_members tcm
+    JOIN tables t ON t.id = tcm.table_id WHERE tcm.combination_id IN (${placeholders})
+  `, comboIds);
+  const membersByCombo = {};
+  for (const m of allMembers) (membersByCombo[m.combination_id] = membersByCombo[m.combination_id] || []).push(m);
+
+  res.json(combos.map(c => {
+    const tables = membersByCombo[c.id] || [];
     const sumMax = tables.reduce((s, t) => s + t.capacity_max, 0);
     // capacity_min/capacity_max: aforo fijado a mano (como en Cover), que puede no
     // coincidir con la suma de las mesas — si no se fijó, se sigue calculando como suma.
     return { ...c, tables, combinedMax: c.capacity_max != null ? c.capacity_max : sumMax };
   }));
-  res.json(withTables);
 });
 
 app.post('/api/combinations', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {

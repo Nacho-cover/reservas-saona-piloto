@@ -1,5 +1,6 @@
 const { pool } = require('./db');
 const { SALA_INTERIOR_POS, BARRA_POS } = require('./floorPositions');
+const { renombrar } = require('./tableRenumbering');
 
 async function seed() {
   const client = await pool.connect();
@@ -69,6 +70,8 @@ async function seed() {
     // Mesas reales de Plaza España, exportadas de Cover (nombre = "ID mesa" tal cual
     // aparece en Cover, para que el equipo reconozca cada mesa por el mismo número que
     // ya usa a diario). aforo (min,max) copiado literalmente de "Mínimo Pax"/"Máximo Pax".
+    // Numeración ORIGINAL de Cover (con huecos y el salto a 508-519); se renumera
+    // correlativa (1-38) al vuelo con renombrar(), sin retranscribir esta lista.
     const salaInteriorTables = [
       ['1', 2, 3], ['2', 2, 3], ['3', 2, 3], ['4', 2, 2], ['5', 2, 2], ['6', 2, 2],
       ['7', 2, 4], ['8', 3, 4], ['9', 3, 4], ['10', 3, 5], ['11', 3, 5], ['12', 3, 4],
@@ -77,7 +80,7 @@ async function seed() {
       ['26', 2, 4], ['27', 2, 4],
       ['508', 1, 2], ['509', 2, 2], ['510', 1, 2], ['511', 2, 2], ['512', 1, 2], ['513', 2, 2],
       ['514', 2, 2], ['515', 2, 2], ['516', 2, 2], ['517', 2, 2], ['518', 2, 2], ['519', 2, 2],
-    ];
+    ].map(([nombre, capMin, capMax]) => [renombrar(nombre), capMin, capMax]);
     // Barra: puestos individuales (aforo 1), no tienen combinación entre sí.
     const barraTables = [
       ['201', 1, 1], ['202', 1, 1], ['203', 1, 1], ['204', 1, 1],
@@ -175,7 +178,9 @@ async function seed() {
       [['6', '509'], 4, 6],
       [['7', '8'], 3, 5],
     ];
-    for (const [members, min, max] of realCombos) await addCombo(members, min, max);
+    // Mismas combinaciones físicas de siempre (ver comentario arriba) — solo se
+    // renombran los miembros a la numeración correlativa nueva.
+    for (const [members, min, max] of realCombos) await addCombo(members.map(renombrar), min, max);
 
     // --- Segundo plano de ejemplo: "Plano evento" (terraza reorganizada para grupos
     // grandes) — demuestra que un local puede tener varios planos y programar cuál

@@ -134,15 +134,25 @@ async function getCombinationsForDate(restaurantId, dateStr) {
     `SELECT * FROM table_combinations WHERE restaurant_id = $1 AND floor_plan_id = $2 AND active = 1`,
     [restaurantId, floorPlanId]
   );
-  const withMembers = await Promise.all(combos.map(async (c) => {
-    const { rows: members } = await db.query(`
-      SELECT t.* FROM table_combination_members tcm
-      JOIN tables t ON t.id = tcm.table_id
-      WHERE tcm.combination_id = $1 AND t.active = 1
-    `, [c.id]);
-    return { ...c, tables: members };
-  }));
-  return withMembers.filter(c => c.tables.length >= 2);
+  if (!combos.length) return [];
+
+  // Una sola consulta con IN(...) en vez de una por combinación: con muchas
+  // combinaciones a la vez (Promise.all disparando todas en paralelo), el pooler
+  // de Supabase llega a su límite de conexiones simultáneas (EMAXCONNSESSION).
+  const comboIds = combos.map(c => c.id);
+  const placeholders = comboIds.map((_, i) => `$${i + 1}`).join(',');
+  const { rows: allMembers } = await db.query(`
+    SELECT tcm.combination_id, t.* FROM table_combination_members tcm
+    JOIN tables t ON t.id = tcm.table_id
+    WHERE tcm.combination_id IN (${placeholders}) AND t.active = 1
+  `, comboIds);
+  const membersByCombo = {};
+  for (const m of allMembers) {
+    (membersByCombo[m.combination_id] = membersByCombo[m.combination_id] || []).push(m);
+  }
+  return combos
+    .map(c => ({ ...c, tables: membersByCombo[c.id] || [] }))
+    .filter(c => c.tables.length >= 2);
 }
 
 // Finds a table (or an explicit combination of tables) free for [start, start+duration)
