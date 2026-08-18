@@ -86,6 +86,20 @@
   </div>
 </div>
 
+<!-- Modal: mover reserva a otra mesa -->
+<div class="modal-backdrop hidden" id="moveModalBackdrop">
+  <div class="modal">
+    <h2>Cambiar de mesa</h2>
+    <p class="res-meta" id="moveModalInfo"></p>
+    <label class="field"><span>Nueva mesa</span><select id="moveTableSelect"></select></label>
+    <p class="error" id="moveModalError"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="moveModalCancelBtn">Cancelar</button>
+      <button class="btn btn-primary" id="moveModalSaveBtn">Cambiar mesa</button>
+    </div>
+  </div>
+</div>
+
 <script src="/admin/authbar.js"></script>
 <script src="/admin/floorplan.js"></script>
 <script src="/admin/admin.js"></script>

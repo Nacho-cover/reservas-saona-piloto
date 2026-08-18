@@ -82,15 +82,17 @@ app.get('/api/availability', requireRestaurant, (req, res) => {
 // --- Public: real floor plan (per-table status) for a chosen date/time/party ---
 // GET /api/table-map?restaurantId=1&date=2026-08-15&time=13:00&partySize=4
 app.get('/api/table-map', requireRestaurant, (req, res) => {
-  const { date, time, partySize } = req.query;
+  const { date, time, partySize, excludeReservationId, durationMinutes } = req.query;
   if (!date || !time || !partySize) {
     return res.status(400).json({ error: 'date, time y partySize son obligatorios' });
   }
   const restaurant = req.restaurant;
   const startMinutes = availability.toMinutes(time);
   const map = availability.getTableMap(
-    restaurant.id, date, startMinutes, restaurant.default_duration_minutes,
-    Number(partySize), restaurant.turnover_buffer_minutes
+    restaurant.id, date, startMinutes,
+    durationMinutes ? Number(durationMinutes) : restaurant.default_duration_minutes,
+    Number(partySize), restaurant.turnover_buffer_minutes,
+    excludeReservationId ? Number(excludeReservationId) : null
   );
   res.json(map);
 });
@@ -276,6 +278,40 @@ app.delete('/api/reservations/:id', adminAuth.requireAdminAuth, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Reserva no encontrada' });
   db.prepare("UPDATE reservations SET status = 'cancelled' WHERE id = ?").run(req.params.id);
   res.json({ ok: true });
+});
+
+// --- Reservations: move to a different table/combo (admin) -----------------
+app.patch('/api/reservations/:id/table', adminAuth.requireAdminAuth, (req, res) => {
+  const { tableIds } = req.body;
+  if (!Array.isArray(tableIds) || !tableIds.length) {
+    return res.status(400).json({ error: 'Elige una mesa.' });
+  }
+  const existing = db.prepare('SELECT * FROM reservations WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Reserva no encontrada' });
+  const restaurant = getRestaurant(existing.restaurant_id);
+
+  // Revalida en el momento del traslado (no se fía de lo que mostró el plano al
+  // personal, por si otra reserva ocupó esa mesa mientras tanto) — excluye la propia
+  // reserva de la comprobación de choques, igual que hace validateChosenTables al crear.
+  const startMinutes = availability.toMinutes(existing.time);
+  const tables = availability.validateChosenTables(
+    restaurant.id, existing.date, tableIds, startMinutes, existing.duration_minutes,
+    existing.party_size, restaurant.turnover_buffer_minutes, existing.id
+  );
+  if (!tables) {
+    return res.status(409).json({ error: 'Esa mesa ya no está disponible para esta reserva. Elige otra.' });
+  }
+
+  db.transaction(() => {
+    db.prepare('DELETE FROM reservation_tables WHERE reservation_id = ?').run(existing.id);
+    const insertRT = db.prepare('INSERT INTO reservation_tables (reservation_id, table_id) VALUES (?, ?)');
+    for (const t of tables) insertRT.run(existing.id, t.id);
+  })();
+
+  const tableNames = db.prepare(`
+    SELECT t.name FROM reservation_tables rt JOIN tables t ON t.id = rt.table_id WHERE rt.reservation_id = ?
+  `).all(existing.id).map(t => t.name);
+  res.json({ ...db.prepare('SELECT * FROM reservations WHERE id = ?').get(existing.id), tables: tableNames });
 });
 
 // --- Shifts (admin) ---------------------------------------------------------

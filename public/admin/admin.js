@@ -213,6 +213,7 @@ function renderRow(r) {
     if (flow.next) {
       actions.appendChild(actionBtn(flow.nextLabel, () => updateStatus(r.id, flow.next)));
     }
+    actions.appendChild(actionBtn('Cambiar mesa', () => openMoveModal(r), 'btn-move'));
     actions.appendChild(actionBtn('No-show', () => markNoShow(r.id), 'btn-noshow'));
     actions.appendChild(actionBtn('Cancela restaurante', () => cancelReservation(r.id, 'restaurant'), 'btn-cancel-restaurant'));
     actions.appendChild(actionBtn('Cancela cliente', () => cancelReservation(r.id, 'customer'), 'btn-cancel-customer'));
@@ -262,6 +263,70 @@ async function cancelReservation(id, cancelledBy) {
 async function markNoShow(id) {
   if (!confirm('¿Marcar como no-show? (el cliente reservó y no se presentó)')) return;
   await updateStatus(id, 'no_show');
+}
+
+// --- Modal: cambiar de mesa una reserva ya existente --------------------
+let moveReservationId = null;
+
+async function openMoveModal(r) {
+  moveReservationId = r.id;
+  const currentTables = (r.tables && r.tables.length) ? r.tables.join(', ') : '—';
+  $('moveModalInfo').textContent = `${r.customer_name} · ${r.party_size}p · ${r.date} ${r.time} · mesa actual: ${currentTables}`;
+  $('moveModalError').textContent = '';
+  const sel = $('moveTableSelect');
+  sel.innerHTML = '<option value="">Cargando…</option>';
+  $('moveModalBackdrop').classList.remove('hidden');
+
+  const params = new URLSearchParams({
+    restaurantId: RESTAURANT_ID, date: r.date, time: r.time, partySize: r.party_size,
+    excludeReservationId: r.id, durationMinutes: r.duration_minutes,
+  });
+  const res = await fetch(`/api/table-map?${params}`);
+  const map = await res.json();
+
+  const options = [];
+  (map.tables || []).forEach(t => {
+    if (t.status === 'available') {
+      options.push({ value: JSON.stringify([t.id]), label: `${t.name} (${t.capacityMin}-${t.capacityMax}p)${t.zoneName ? ' · ' + t.zoneName : ''}` });
+    }
+  });
+  (map.combos || []).forEach(c => {
+    if (c.status === 'available') {
+      options.push({ value: JSON.stringify(c.tableIds), label: `${c.name} — combinada (hasta ${c.combinedMax}p)` });
+    }
+  });
+
+  sel.innerHTML = options.length
+    ? '<option value="">Elige una mesa</option>' + options.map(o => `<option value='${o.value}'>${escapeHtml(o.label)}</option>`).join('')
+    : '<option value="">No hay mesas libres para esa franja</option>';
+}
+
+function closeMoveModal() {
+  $('moveModalBackdrop').classList.add('hidden');
+  moveReservationId = null;
+}
+
+async function saveMoveModal() {
+  const sel = $('moveTableSelect');
+  if (!sel.value) { $('moveModalError').textContent = 'Elige una mesa.'; return; }
+  const tableIds = JSON.parse(sel.value);
+  const btn = $('moveModalSaveBtn');
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/reservations/${moveReservationId}/table`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableIds }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo cambiar de mesa');
+    closeMoveModal();
+    loadReservations();
+  } catch (err) {
+    $('moveModalError').textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // --- Modal: new reservation (phone) -----------------------------------
@@ -426,6 +491,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('openNewBtn').addEventListener('click', openModal);
   $('modalCancelBtn').addEventListener('click', closeModal);
   $('modalSaveBtn').addEventListener('click', saveModal);
+
+  $('moveModalCancelBtn').addEventListener('click', closeMoveModal);
+  $('moveModalSaveBtn').addEventListener('click', saveMoveModal);
 
   $('monthViewBtn').addEventListener('click', openMonthView);
   $('closeMonthBtn').addEventListener('click', closeMonthView);

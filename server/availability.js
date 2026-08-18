@@ -246,7 +246,7 @@ function getZonesForDate(restaurantId, dateStr) {
 // actual status (occupied by an existing reservation, too small for this party, or free),
 // plus which currently-viable combinations each table belongs to. This is what lets the
 // customer pick their own table instead of the system silently auto-assigning one.
-function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes, partySize, bufferMinutes) {
+function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
   const zones = getZonesForDate(restaurantId, dateStr);
   const zoneName = {};
   zones.forEach(z => { zoneName[z.id] = z.name; });
@@ -254,7 +254,10 @@ function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes, party
   const tables = getActiveTables(restaurantId, dateStr);
   const reqEnd = startMinutes + durationMinutes;
   const isFree = (table) => {
-    const busy = tableBusyRanges(restaurantId, table.id, dateStr, bufferMinutes, null);
+    // Al mover una reserva ya existente a otra mesa, hay que ignorar su propia
+    // ocupación actual (si no, la mesa que ya tiene asignada saldría "ocupada" por
+    // sí misma). excludeReservationId viene null en el flujo normal de reserva nueva.
+    const busy = tableBusyRanges(restaurantId, table.id, dateStr, bufferMinutes, excludeReservationId || null);
     return !busy.some(b => overlaps(startMinutes, reqEnd, b.start, b.end));
   };
 

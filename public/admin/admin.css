@@ -81,8 +81,11 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
 }
 .res-actions button:hover { background: var(--bg); }
 
-/* No-show y cancelación: colores distintos para que se distingan de un vistazo
-   (ámbar = no-show, rojo = cancela el restaurante, morado = cancela el cliente). */
+/* Cambiar mesa, no-show y cancelación: colores distintos para que se distingan
+   de un vistazo (azul = cambiar mesa, ámbar = no-show, rojo = cancela el
+   restaurante, morado = cancela el cliente). */
+.res-actions .btn-move { background: #dde9fc; color: #1c56c9; }
+.res-actions .btn-move:hover { background: #c5daf9; }
 .res-actions .btn-noshow { background: #fde8cc; color: #a15c00; }
 .res-actions .btn-noshow:hover { background: #fbdca8; }
 .res-actions .btn-cancel-restaurant { background: #fbdad6; color: #a5301f; }
