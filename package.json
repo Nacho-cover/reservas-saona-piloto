@@ -12,9 +12,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dayjs": "^1.11.21",
-    "express": "^5.2.1"
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pg": "^8.23.0"
   }
 }

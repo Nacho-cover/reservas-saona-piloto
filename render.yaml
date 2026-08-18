@@ -8,7 +8,12 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20.11.0
-    disk:
-      name: reservas-data
-      mountPath: /opt/render/project/src/data
-      sizeGB: 1
+      # Postgres de Supabase — los datos ya no dependen del disco del contenedor
+      # (el plan free de Render no soporta discos persistentes), así que sobreviven
+      # a cada despliegue/reinicio. Valor real puesto a mano en el dashboard de Render.
+      - key: DATABASE_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false

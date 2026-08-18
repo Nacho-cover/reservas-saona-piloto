@@ -74,8 +74,9 @@ function requireAdminAuth(req, res, next) {
   return res.status(401).json({ error: 'No has iniciado sesión.' });
 }
 
-function getCredential() {
-  return db.prepare('SELECT * FROM admin_credentials ORDER BY id LIMIT 1').get();
+async function getCredential() {
+  const { rows } = await db.query('SELECT * FROM admin_credentials ORDER BY id LIMIT 1');
+  return rows[0];
 }
 
 module.exports = {

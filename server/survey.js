@@ -5,17 +5,19 @@ const crypto = require('crypto');
 const db = require('./db');
 const { sendEmail, formatFechaLarga } = require('./email');
 
-function getTokenSecret() {
-  return db.prepare("SELECT value FROM app_secrets WHERE key = 'survey_token_secret'").get().value;
+async function getTokenSecret() {
+  const { rows } = await db.query("SELECT value FROM app_secrets WHERE key = 'survey_token_secret'");
+  return rows[0].value;
 }
 
-function generateSurveyToken(reservationId) {
-  return crypto.createHmac('sha256', getTokenSecret()).update(String(reservationId)).digest('hex').slice(0, 32);
+async function generateSurveyToken(reservationId) {
+  const secret = await getTokenSecret();
+  return crypto.createHmac('sha256', secret).update(String(reservationId)).digest('hex').slice(0, 32);
 }
 
-function verifySurveyToken(reservationId, token) {
+async function verifySurveyToken(reservationId, token) {
   if (!token) return false;
-  const expected = generateSurveyToken(reservationId);
+  const expected = await generateSurveyToken(reservationId);
   const a = Buffer.from(expected);
   const b = Buffer.from(String(token));
   return a.length === b.length && crypto.timingSafeEqual(a, b);
@@ -47,7 +49,7 @@ function surveyEmailHtml({ restaurant, reservation, surveyUrl }) {
 
 async function sendSurveyEmail({ restaurant, reservation, baseUrl }) {
   if (!reservation.email) return { skipped: 'sin email' };
-  const token = generateSurveyToken(reservation.id);
+  const token = await generateSurveyToken(reservation.id);
   const surveyUrl = `${baseUrl}/encuesta.html?r=${reservation.id}&t=${token}`;
   return sendEmail({
     to: reservation.email,

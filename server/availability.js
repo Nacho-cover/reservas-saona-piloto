@@ -11,35 +11,39 @@ function toHHMM(mins) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-function getShiftsForDate(restaurantId, dateStr) {
+async function getShiftsForDate(restaurantId, dateStr) {
   const dow = dayjs(dateStr).day(); // 0=Sunday
-  return db.prepare(
-    `SELECT * FROM shifts WHERE restaurant_id = ? AND day_of_week = ? ORDER BY start_time`
-  ).all(restaurantId, dow);
+  const { rows } = await db.query(
+    `SELECT * FROM shifts WHERE restaurant_id = $1 AND day_of_week = $2 ORDER BY start_time`,
+    [restaurantId, dow]
+  );
+  return rows;
 }
 
-function isClosed(restaurantId, dateStr) {
-  const row = db.prepare(
-    `SELECT 1 FROM closures WHERE restaurant_id = ? AND date = ? AND shift IS NULL`
-  ).get(restaurantId, dateStr);
-  return !!row;
+async function isClosed(restaurantId, dateStr) {
+  const { rows } = await db.query(
+    `SELECT 1 FROM closures WHERE restaurant_id = $1 AND date = $2 AND shift IS NULL`,
+    [restaurantId, dateStr]
+  );
+  return rows.length > 0;
 }
 
 // Turnos cerrados ese día (además del posible cierre del día entero) — deja de
 // ofrecerse ese turno para reservas nuevas, sin tocar las que ya existan.
-function closedShifts(restaurantId, dateStr) {
-  const rows = db.prepare(
-    `SELECT shift FROM closures WHERE restaurant_id = ? AND date = ? AND shift IS NOT NULL`
-  ).all(restaurantId, dateStr);
+async function closedShifts(restaurantId, dateStr) {
+  const { rows } = await db.query(
+    `SELECT shift FROM closures WHERE restaurant_id = $1 AND date = $2 AND shift IS NOT NULL`,
+    [restaurantId, dateStr]
+  );
   return new Set(rows.map(r => r.shift));
 }
 
 // Returns candidate time slots (HH:MM) for a given date based on shifts + slot interval,
 // leaving room for the reservation duration before the shift/last-seating cutoff.
-function candidateSlots(restaurant, dateStr) {
-  if (isClosed(restaurant.id, dateStr)) return [];
-  const closed = closedShifts(restaurant.id, dateStr);
-  const shifts = getShiftsForDate(restaurant.id, dateStr);
+async function candidateSlots(restaurant, dateStr) {
+  if (await isClosed(restaurant.id, dateStr)) return [];
+  const closed = await closedShifts(restaurant.id, dateStr);
+  const shifts = await getShiftsForDate(restaurant.id, dateStr);
   const slots = [];
   for (const shift of shifts) {
     if (closed.has(shift.name)) continue;
@@ -54,25 +58,25 @@ function candidateSlots(restaurant, dateStr) {
 
 // Existing reservations occupying a given table on a date, as [start,end) minute ranges
 // (end includes the turnover buffer so back-to-back bookings respect cleaning time).
-function tableBusyRanges(restaurantId, tableId, dateStr, bufferMinutes, excludeReservationId) {
+async function tableBusyRanges(restaurantId, tableId, dateStr, bufferMinutes, excludeReservationId) {
   let rows;
   if (excludeReservationId) {
-    rows = db.prepare(`
+    ({ rows } = await db.query(`
       SELECT r.time, r.duration_minutes, r.id, r.paid_at
       FROM reservations r
       JOIN reservation_tables rt ON rt.reservation_id = r.id
-      WHERE r.restaurant_id = ? AND rt.table_id = ? AND r.date = ?
+      WHERE r.restaurant_id = $1 AND rt.table_id = $2 AND r.date = $3
         AND r.status NOT IN ('cancelled','no_show')
-        AND r.id != ?
-    `).all(restaurantId, tableId, dateStr, excludeReservationId);
+        AND r.id != $4
+    `, [restaurantId, tableId, dateStr, excludeReservationId]));
   } else {
-    rows = db.prepare(`
+    ({ rows } = await db.query(`
       SELECT r.time, r.duration_minutes, r.id, r.paid_at
       FROM reservations r
       JOIN reservation_tables rt ON rt.reservation_id = r.id
-      WHERE r.restaurant_id = ? AND rt.table_id = ? AND r.date = ?
+      WHERE r.restaurant_id = $1 AND rt.table_id = $2 AND r.date = $3
         AND r.status NOT IN ('cancelled','no_show')
-    `).all(restaurantId, tableId, dateStr);
+    `, [restaurantId, tableId, dateStr]));
   }
   return rows.map(r => {
     const start = toMinutes(r.time);
@@ -98,53 +102,59 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 // (incluso para una fecha que ya tiene reservas) nunca toca las mesas ya
 // referenciadas por esas reservas: reservation_tables sigue apuntando al
 // table_id original, que no se borra al cambiar de plano.
-function resolveFloorPlanId(restaurantId, dateStr) {
-  const scheduled = db.prepare(
-    `SELECT floor_plan_id FROM floor_plan_schedule WHERE restaurant_id = ? AND date = ?`
-  ).get(restaurantId, dateStr);
-  if (scheduled) return scheduled.floor_plan_id;
-  const def = db.prepare(
-    `SELECT id FROM floor_plans WHERE restaurant_id = ? AND is_default = 1 LIMIT 1`
-  ).get(restaurantId);
-  return def ? def.id : null;
+async function resolveFloorPlanId(restaurantId, dateStr) {
+  const { rows: scheduledRows } = await db.query(
+    `SELECT floor_plan_id FROM floor_plan_schedule WHERE restaurant_id = $1 AND date = $2`,
+    [restaurantId, dateStr]
+  );
+  if (scheduledRows.length) return scheduledRows[0].floor_plan_id;
+  const { rows: defRows } = await db.query(
+    `SELECT id FROM floor_plans WHERE restaurant_id = $1 AND is_default = 1 LIMIT 1`,
+    [restaurantId]
+  );
+  return defRows.length ? defRows[0].id : null;
 }
 
-function getActiveTables(restaurantId, dateStr) {
-  const floorPlanId = resolveFloorPlanId(restaurantId, dateStr);
+async function getActiveTables(restaurantId, dateStr) {
+  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr);
   if (!floorPlanId) return [];
-  return db.prepare(
-    `SELECT * FROM tables WHERE restaurant_id = ? AND floor_plan_id = ? AND active = 1`
-  ).all(restaurantId, floorPlanId);
+  const { rows } = await db.query(
+    `SELECT * FROM tables WHERE restaurant_id = $1 AND floor_plan_id = $2 AND active = 1`,
+    [restaurantId, floorPlanId]
+  );
+  return rows;
 }
 
 // Combinaciones de mesas definidas explícitamente para el plano de esa fecha
 // (2 o más mesas, no solo parejas — p. ej. M3+M4+M5 para un grupo grande).
-function getCombinationsForDate(restaurantId, dateStr) {
-  const floorPlanId = resolveFloorPlanId(restaurantId, dateStr);
+async function getCombinationsForDate(restaurantId, dateStr) {
+  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr);
   if (!floorPlanId) return [];
-  const combos = db.prepare(
-    `SELECT * FROM table_combinations WHERE restaurant_id = ? AND floor_plan_id = ? AND active = 1`
-  ).all(restaurantId, floorPlanId);
-  const memberStmt = db.prepare(`
-    SELECT t.* FROM table_combination_members tcm
-    JOIN tables t ON t.id = tcm.table_id
-    WHERE tcm.combination_id = ? AND t.active = 1
-  `);
-  return combos
-    .map(c => ({ ...c, tables: memberStmt.all(c.id) }))
-    .filter(c => c.tables.length >= 2);
+  const { rows: combos } = await db.query(
+    `SELECT * FROM table_combinations WHERE restaurant_id = $1 AND floor_plan_id = $2 AND active = 1`,
+    [restaurantId, floorPlanId]
+  );
+  const withMembers = await Promise.all(combos.map(async (c) => {
+    const { rows: members } = await db.query(`
+      SELECT t.* FROM table_combination_members tcm
+      JOIN tables t ON t.id = tcm.table_id
+      WHERE tcm.combination_id = $1 AND t.active = 1
+    `, [c.id]);
+    return { ...c, tables: members };
+  }));
+  return withMembers.filter(c => c.tables.length >= 2);
 }
 
 // Finds a table (or an explicit combination of tables) free for [start, start+duration)
 // at partySize, using only the tables/combinations that belong to the plan active on dateStr.
-function findAvailableTable(restaurantId, dateStr, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
-  const allTables = getActiveTables(restaurantId, dateStr);
+async function findAvailableTable(restaurantId, dateStr, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
+  const allTables = await getActiveTables(restaurantId, dateStr);
+  const reqEnd = startMinutes + durationMinutes;
 
-  const isFree = (table) => {
-    const busy = tableBusyRanges(restaurantId, table.id, dateStr, bufferMinutes, excludeReservationId);
-    const reqEnd = startMinutes + durationMinutes;
+  async function isFree(table) {
+    const busy = await tableBusyRanges(restaurantId, table.id, dateStr, bufferMinutes, excludeReservationId);
     return !busy.some(b => overlaps(startMinutes, reqEnd, b.start, b.end));
-  };
+  }
 
   // 1) Best single-table fit (smallest table whose own capacity_min<=party<=capacity_max).
   // This filter only makes sense per-table, so it's applied here — NOT on the list used
@@ -153,15 +163,16 @@ function findAvailableTable(restaurantId, dateStr, startMinutes, durationMinutes
   const singleCandidates = allTables
     .filter(t => partySize <= t.capacity_max)
     .sort((a, b) => a.capacity_max - b.capacity_max);
-  const singleFit = singleCandidates.find(t => partySize >= t.capacity_min && isFree(t));
-  if (singleFit) return [singleFit];
+  for (const t of singleCandidates) {
+    if (partySize >= t.capacity_min && await isFree(t)) return [t];
+  }
 
   // 2) Explicit combinations of 2+ tables defined for this plan (staff-configured, not
   // inferred). What matters is the combination's total capacity, not any single member's.
   // capacity_min/capacity_max: aforo fijado a mano (como en Cover) — no siempre coincide
   // con la suma de las mesas (dos mesas de 2 pueden dar servicio a 6 por las sillas de
   // esquina que se añaden al juntarlas). Si no se fijó, se usa la suma de siempre.
-  const combos = getCombinationsForDate(restaurantId, dateStr)
+  const combos = (await getCombinationsForDate(restaurantId, dateStr))
     .map(c => ({
       ...c,
       combinedMin: c.capacity_min != null ? c.capacity_min : 1,
@@ -170,7 +181,11 @@ function findAvailableTable(restaurantId, dateStr, startMinutes, durationMinutes
     .sort((a, b) => a.combinedMax - b.combinedMax);
   for (const combo of combos) {
     if (partySize > combo.combinedMax || partySize < combo.combinedMin) continue;
-    if (combo.tables.every(isFree)) return combo.tables;
+    let allFree = true;
+    for (const t of combo.tables) {
+      if (!(await isFree(t))) { allFree = false; break; }
+    }
+    if (allFree) return combo.tables;
   }
   return null;
 }
@@ -181,11 +196,13 @@ function findAvailableTable(restaurantId, dateStr, startMinutes, durationMinutes
 // más estricto que "cuántas mesas hay libres" (p. ej. para no saturar cocina
 // en un tramo concreto aunque queden mesas).
 
-function getCapacityCapsForDay(restaurantId, dateStr) {
+async function getCapacityCapsForDay(restaurantId, dateStr) {
   const dow = dayjs(dateStr).day();
-  return db.prepare(
-    `SELECT * FROM capacity_caps WHERE restaurant_id = ? AND day_of_week = ? ORDER BY start_time`
-  ).all(restaurantId, dow);
+  const { rows } = await db.query(
+    `SELECT * FROM capacity_caps WHERE restaurant_id = $1 AND day_of_week = $2 ORDER BY start_time`,
+    [restaurantId, dow]
+  );
+  return rows;
 }
 
 function findCapForMinute(caps, minute) {
@@ -194,11 +211,12 @@ function findCapForMinute(caps, minute) {
 
 // Comensales ya reservados (no cancelados/no-show) cuya hora de inicio cae dentro
 // de la misma franja [bandStart, bandEnd) que la reserva candidata.
-function coversBookedInBand(restaurantId, dateStr, bandStart, bandEnd, excludeReservationId) {
-  const rows = db.prepare(
+async function coversBookedInBand(restaurantId, dateStr, bandStart, bandEnd, excludeReservationId) {
+  const { rows } = await db.query(
     `SELECT time, party_size, id FROM reservations
-     WHERE restaurant_id = ? AND date = ? AND status NOT IN ('cancelled','no_show')`
-  ).all(restaurantId, dateStr);
+     WHERE restaurant_id = $1 AND date = $2 AND status NOT IN ('cancelled','no_show')`,
+    [restaurantId, dateStr]
+  );
   return rows
     .filter(r => (!excludeReservationId || r.id !== excludeReservationId))
     .filter(r => { const m = toMinutes(r.time); return m >= bandStart && m < bandEnd; })
@@ -208,68 +226,72 @@ function coversBookedInBand(restaurantId, dateStr, bandStart, bandEnd, excludeRe
 // true si añadir `partySize` a las `startMinutes` respeta el cupo de aforo de esa franja.
 // Si no hay cupo configurado para ese día/franja, no se restringe por este criterio
 // (solo aplica la disponibilidad de mesa).
-function hasCapacityRoom(restaurantId, dateStr, startMinutes, partySize, excludeReservationId) {
-  const caps = getCapacityCapsForDay(restaurantId, dateStr);
+async function hasCapacityRoom(restaurantId, dateStr, startMinutes, partySize, excludeReservationId) {
+  const caps = await getCapacityCapsForDay(restaurantId, dateStr);
   if (!caps.length) return true;
   const cap = findCapForMinute(caps, startMinutes);
   if (!cap) return true;
   const bandStart = toMinutes(cap.start_time);
   const bandEnd = toMinutes(cap.end_time);
-  const booked = coversBookedInBand(restaurantId, dateStr, bandStart, bandEnd, excludeReservationId);
+  const booked = await coversBookedInBand(restaurantId, dateStr, bandStart, bandEnd, excludeReservationId);
   return booked + partySize <= cap.max_covers;
 }
 
 // Public: available time slots for a date/party size, combinando disponibilidad
 // de mesa Y cupo de aforo por franja.
-function getAvailability(restaurant, dateStr, partySize) {
+async function getAvailability(restaurant, dateStr, partySize) {
   const duration = restaurant.default_duration_minutes;
   const buffer = restaurant.turnover_buffer_minutes;
-  const slots = candidateSlots(restaurant, dateStr);
+  const slots = await candidateSlots(restaurant, dateStr);
   const results = [];
   for (const slot of slots) {
-    const table = findAvailableTable(restaurant.id, dateStr, slot.minutes, duration, partySize, buffer, null);
-    const capOk = hasCapacityRoom(restaurant.id, dateStr, slot.minutes, partySize, null);
+    const table = await findAvailableTable(restaurant.id, dateStr, slot.minutes, duration, partySize, buffer, null);
+    const capOk = await hasCapacityRoom(restaurant.id, dateStr, slot.minutes, partySize, null);
     results.push({ time: slot.time, shift: slot.shift, available: !!table && capOk });
   }
   return results;
 }
 
-function getZonesForDate(restaurantId, dateStr) {
-  const floorPlanId = resolveFloorPlanId(restaurantId, dateStr);
+async function getZonesForDate(restaurantId, dateStr) {
+  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr);
   if (!floorPlanId) return [];
-  return db.prepare(
-    `SELECT * FROM zones WHERE restaurant_id = ? AND floor_plan_id = ? ORDER BY sort_order, name`
-  ).all(restaurantId, floorPlanId);
+  const { rows } = await db.query(
+    `SELECT * FROM zones WHERE restaurant_id = $1 AND floor_plan_id = $2 ORDER BY sort_order, name`,
+    [restaurantId, floorPlanId]
+  );
+  return rows;
 }
 
 // Public: the real, tappable floor plan for a specific date/time/party — every table's
 // actual status (occupied by an existing reservation, too small for this party, or free),
 // plus which currently-viable combinations each table belongs to. This is what lets the
 // customer pick their own table instead of the system silently auto-assigning one.
-function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
-  const zones = getZonesForDate(restaurantId, dateStr);
+async function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
+  const zones = await getZonesForDate(restaurantId, dateStr);
   const zoneName = {};
   zones.forEach(z => { zoneName[z.id] = z.name; });
 
-  const tables = getActiveTables(restaurantId, dateStr);
+  const tables = await getActiveTables(restaurantId, dateStr);
   const reqEnd = startMinutes + durationMinutes;
-  const isFree = (table) => {
+
+  async function isFree(table) {
     // Al mover una reserva ya existente a otra mesa, hay que ignorar su propia
     // ocupación actual (si no, la mesa que ya tiene asignada saldría "ocupada" por
     // sí misma). excludeReservationId viene null en el flujo normal de reserva nueva.
-    const busy = tableBusyRanges(restaurantId, table.id, dateStr, bufferMinutes, excludeReservationId || null);
+    const busy = await tableBusyRanges(restaurantId, table.id, dateStr, bufferMinutes, excludeReservationId || null);
     return !busy.some(b => overlaps(startMinutes, reqEnd, b.start, b.end));
-  };
+  }
 
   const tableFree = {};
   const tableStatus = {};
   for (const t of tables) {
-    const free = isFree(t);
+    const free = await isFree(t);
     tableFree[t.id] = free;
     tableStatus[t.id] = !free ? 'occupied' : (partySize > t.capacity_max ? 'toosmall' : 'available');
   }
 
-  const combos = getCombinationsForDate(restaurantId, dateStr).map(c => {
+  const rawCombos = await getCombinationsForDate(restaurantId, dateStr);
+  const combos = rawCombos.map(c => {
     const combinedMax = c.tables.reduce((sum, t) => sum + t.capacity_max, 0);
     const allFree = c.tables.every(t => tableFree[t.id]);
     const status = !allFree ? 'occupied' : (partySize > combinedMax ? 'toosmall' : 'available');
@@ -314,20 +336,21 @@ function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes, party
 // have passed between showing them the floor plan and them hitting "confirm". Returns the
 // table rows to book if the choice still holds, or null if it doesn't (caller should ask
 // the customer to pick again rather than silently substituting a different table).
-function validateChosenTables(restaurantId, dateStr, tableIds, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
+async function validateChosenTables(restaurantId, dateStr, tableIds, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
   if (!Array.isArray(tableIds) || !tableIds.length) return null;
-  const floorPlanId = resolveFloorPlanId(restaurantId, dateStr);
+  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr);
   if (!floorPlanId) return null;
 
-  const placeholders = tableIds.map(() => '?').join(',');
-  const rows = db.prepare(
-    `SELECT * FROM tables WHERE restaurant_id = ? AND floor_plan_id = ? AND active = 1 AND id IN (${placeholders})`
-  ).all(restaurantId, floorPlanId, ...tableIds);
+  const placeholders = tableIds.map((_, i) => `$${i + 3}`).join(',');
+  const { rows } = await db.query(
+    `SELECT * FROM tables WHERE restaurant_id = $1 AND floor_plan_id = $2 AND active = 1 AND id IN (${placeholders})`,
+    [restaurantId, floorPlanId, ...tableIds]
+  );
   if (rows.length !== tableIds.length) return null; // a table doesn't belong to this date's plan
 
   const reqEnd = startMinutes + durationMinutes;
   for (const t of rows) {
-    const busy = tableBusyRanges(restaurantId, t.id, dateStr, bufferMinutes, excludeReservationId);
+    const busy = await tableBusyRanges(restaurantId, t.id, dateStr, bufferMinutes, excludeReservationId);
     if (busy.some(b => overlaps(startMinutes, reqEnd, b.start, b.end))) return null;
   }
 
