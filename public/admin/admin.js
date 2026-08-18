@@ -185,10 +185,18 @@ function renderRow(r) {
   `;
 
   const flow = STATUS_FLOW[r.status] || {};
+  let badgeExtraClass = '';
+  if (r.status === 'cancelled') badgeExtraClass = r.cancelled_by === 'customer' ? 'cancelled-customer' : 'cancelled';
+  else if (r.status === 'no_show') badgeExtraClass = 'no-show';
+
   const badge = document.createElement('span');
-  badge.className = 'res-badge' + (flow.color ? ' ' + flow.color : '') + (r.status === 'cancelled' ? ' cancelled' : '');
+  badge.className = 'res-badge' + (flow.color ? ' ' + flow.color : '') + (badgeExtraClass ? ' ' + badgeExtraClass : '');
   badge.title = STATUS_LABELS[r.status] || r.status;
-  badge.textContent = r.status === 'confirmed' ? (r.source === 'phone' || r.source === 'admin' ? 'Tel.' : 'Web') : STATUS_LABELS[r.status];
+  let statusText = STATUS_LABELS[r.status] || r.status;
+  if (r.status === 'cancelled' && r.cancelled_by) {
+    statusText += r.cancelled_by === 'restaurant' ? ' (restaurante)' : ' (cliente)';
+  }
+  badge.textContent = r.status === 'confirmed' ? (r.source === 'phone' || r.source === 'admin' ? 'Tel.' : 'Web') : statusText;
 
   const actions = document.createElement('div');
   actions.className = 'res-actions';
@@ -196,7 +204,9 @@ function renderRow(r) {
     if (flow.next) {
       actions.appendChild(actionBtn(flow.nextLabel, () => updateStatus(r.id, flow.next)));
     }
-    actions.appendChild(actionBtn('Cancelar', () => cancelReservation(r.id)));
+    actions.appendChild(actionBtn('No-show', () => markNoShow(r.id), 'btn-noshow'));
+    actions.appendChild(actionBtn('Cancela restaurante', () => cancelReservation(r.id, 'restaurant'), 'btn-cancel-restaurant'));
+    actions.appendChild(actionBtn('Cancela cliente', () => cancelReservation(r.id, 'customer'), 'btn-cancel-customer'));
   }
 
   row.appendChild(time);
@@ -206,9 +216,10 @@ function renderRow(r) {
   return row;
 }
 
-function actionBtn(label, onClick) {
+function actionBtn(label, onClick, extraClass) {
   const btn = document.createElement('button');
   btn.textContent = label;
+  if (extraClass) btn.className = extraClass;
   btn.addEventListener('click', onClick);
   return btn;
 }
@@ -228,10 +239,20 @@ async function updateStatus(id, status) {
   loadReservations();
 }
 
-async function cancelReservation(id) {
-  if (!confirm('¿Cancelar esta reserva?')) return;
-  await fetch(`/api/reservations/${id}`, { method: 'DELETE' });
+async function cancelReservation(id, cancelledBy) {
+  const who = cancelledBy === 'restaurant' ? 'el restaurante' : 'el cliente';
+  if (!confirm(`¿Cancelar esta reserva? (cancela ${who})`)) return;
+  await fetch(`/api/reservations/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'cancelled', cancelledBy }),
+  });
   loadReservations();
+}
+
+async function markNoShow(id) {
+  if (!confirm('¿Marcar como no-show? (el cliente reservó y no se presentó)')) return;
+  await updateStatus(id, 'no_show');
 }
 
 // --- Modal: new reservation (phone) -----------------------------------

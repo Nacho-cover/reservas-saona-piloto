@@ -245,18 +245,28 @@ app.get('/api/reservations/summary', adminAuth.requireAdminAuth, requireRestaura
 
 // --- Reservations: update status (admin) ---------------------------------
 app.patch('/api/reservations/:id', adminAuth.requireAdminAuth, (req, res) => {
-  const { status, notes } = req.body;
+  const { status, notes, cancelledBy } = req.body;
   const allowed = ['confirmed', 'seated', 'eating', 'dessert', 'paid', 'completed', 'cancelled', 'no_show'];
   const existing = db.prepare('SELECT * FROM reservations WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Reserva no encontrada' });
   if (status && !allowed.includes(status)) return res.status(400).json({ error: 'Estado no válido' });
+  // Al cancelar hace falta saber quién cancela (lo pide el restaurante o lo pide el
+  // cliente), ya que cambia lo que hay que hacer después (p. ej. si aplica algún cargo).
+  if (status === 'cancelled' && !['restaurant', 'customer'].includes(cancelledBy)) {
+    return res.status(400).json({ error: 'Indica quién cancela: el restaurante o el cliente.' });
+  }
 
   // Al pasar a "Pagada" se guarda el momento exacto: la mesa se libera 2 min después
   // de esto (ver availability.tableBusyRanges), no al terminar la duración estándar.
   const paidAt = (status === 'paid' && existing.status !== 'paid') ? dayjs().format('YYYY-MM-DD HH:mm:ss') : null;
+  const cancelledByValue = status === 'cancelled' ? cancelledBy : null;
 
-  db.prepare('UPDATE reservations SET status = COALESCE(?, status), notes = COALESCE(?, notes), paid_at = COALESCE(?, paid_at) WHERE id = ?')
-    .run(status || null, notes ?? null, paidAt, req.params.id);
+  db.prepare(`
+    UPDATE reservations
+    SET status = COALESCE(?, status), notes = COALESCE(?, notes), paid_at = COALESCE(?, paid_at),
+        cancelled_by = COALESCE(?, cancelled_by)
+    WHERE id = ?
+  `).run(status || null, notes ?? null, paidAt, cancelledByValue, req.params.id);
   res.json(db.prepare('SELECT * FROM reservations WHERE id = ?').get(req.params.id));
 });
 

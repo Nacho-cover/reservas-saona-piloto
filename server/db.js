@@ -152,7 +152,8 @@ CREATE TABLE IF NOT EXISTS reservations (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   paid_at TEXT, -- cuándo pasó a "Pagada" (hora local, igual criterio que date/time) — la mesa se
                 -- libera 2 min después de esto en vez de esperar a la duración estándar
-  survey_sent_at TEXT -- cuándo se envió la encuesta de satisfacción (evita reenviarla dos veces)
+  survey_sent_at TEXT, -- cuándo se envió la encuesta de satisfacción (evita reenviarla dos veces)
+  cancelled_by TEXT -- quién canceló: 'restaurant' o 'customer' (solo relevante si status = 'cancelled')
 );
 
 -- Almacén genérico clave/valor para secretos internos generados por la propia app
@@ -216,6 +217,7 @@ if (!closureCols.includes('shift')) db.exec('ALTER TABLE closures ADD COLUMN shi
 const reservationCols = db.prepare("PRAGMA table_info(reservations)").all().map(c => c.name);
 if (!reservationCols.includes('paid_at')) db.exec('ALTER TABLE reservations ADD COLUMN paid_at TEXT');
 if (!reservationCols.includes('survey_sent_at')) db.exec('ALTER TABLE reservations ADD COLUMN survey_sent_at TEXT');
+if (!reservationCols.includes('cancelled_by')) db.exec('ALTER TABLE reservations ADD COLUMN cancelled_by TEXT');
 
 // Primer arranque: si no hay ninguna credencial de acceso al panel de personal,
 // se crea una por defecto (usuario/contraseña iniciales que el propio equipo puede
