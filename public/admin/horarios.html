@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Horarios – Staff</title>
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/admin/config.css">
+<link rel="stylesheet" href="/admin/horarios.css">
+</head>
+<body>
+<div class="admin">
+  <header class="admin-topbar">
+    <div>
+      <div class="admin-title" id="restaurantName">Horarios</div>
+      <div class="admin-sub">Horas operativas por turno</div>
+    </div>
+    <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap">
+      <div id="sessionBar"></div>
+      <a class="btn btn-secondary" href="/admin/">&larr; Volver a reservas</a>
+    </div>
+  </header>
+
+  <!-- Horario semanal -->
+  <section class="cfg-card">
+    <div class="cfg-card-header">
+      <h2>Horario semanal</h2>
+    </div>
+    <p class="cfg-hint">Horas de cada turno por día de la semana. Haz clic en una celda para cambiarla ahí abajo.</p>
+    <div id="weekGrid" class="week-grid"></div>
+  </section>
+
+  <!-- Cambiar horario -->
+  <section class="cfg-card">
+    <div class="cfg-card-header">
+      <h2>Cambiar horario</h2>
+    </div>
+    <form id="shiftForm">
+      <div class="field-row">
+        <label class="field">
+          <span>Turno</span>
+          <select id="shiftName"></select>
+          <input type="text" id="shiftNameNew" class="hidden" placeholder="Nombre del turno nuevo">
+        </label>
+        <label class="field"><span>Hora inicio</span><select id="shiftStart"></select></label>
+        <label class="field"><span>Hora fin</span><select id="shiftEnd"></select></label>
+      </div>
+
+      <div class="field" style="margin-top:10px">
+        <span>Aplicar a</span>
+        <div class="chip-list" id="scopeOptions">
+          <label class="chip"><input type="radio" name="scope" value="day" checked> Un día en concreto</label>
+          <label class="chip"><input type="radio" name="scope" value="weekday"> Todos los <span id="weekdayLabel">lunes</span></label>
+          <label class="chip"><input type="radio" name="scope" value="everyday"> Todos los días</label>
+          <label class="chip"><input type="radio" name="scope" value="range"> Entre dos fechas</label>
+          <label class="chip"><input type="radio" name="scope" value="specific"> Días específicos</label>
+        </div>
+      </div>
+
+      <div id="scopeFields" style="margin-top:10px"></div>
+
+      <p class="error" id="shiftFormError"></p>
+      <div class="modal-actions" style="justify-content:flex-start; margin-top:14px">
+        <button class="btn btn-primary" type="submit" id="applyHoursBtn">Guardar horario</button>
+        <button class="btn btn-secondary" type="button" id="closeShiftScopeBtn">Cerrar este turno</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Excepciones -->
+  <section class="cfg-card">
+    <h2>Próximas excepciones de horario</h2>
+    <p class="cfg-hint">Días con horas distintas a las habituales (esto no son cierres — para cerrar un turno o un día, usa "Cerrar este turno" arriba, o el cierre rápido del panel del día).</p>
+    <div id="overridesList" class="table-list"></div>
+  </section>
+</div>
+
+<script src="/admin/authbar.js"></script>
+<script src="/admin/horarios.js"></script>
+</body>
+</html>

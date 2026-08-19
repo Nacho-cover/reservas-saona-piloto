@@ -1,0 +1,22 @@
+.week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.week-day { border: 1px solid var(--border); border-radius: 10px; padding: 10px; min-height: 90px; }
+.week-day .wd-label { font-weight: 700; font-size: 13px; margin-bottom: 8px; text-transform: capitalize; }
+.week-day .wd-shift {
+  font-size: 12.5px; padding: 5px 7px; border-radius: 6px; margin-bottom: 5px; cursor: pointer;
+  background: var(--brand-light); color: var(--brand-dark);
+}
+.week-day .wd-shift:hover { filter: brightness(0.95); }
+.week-day .wd-empty { font-size: 12px; color: var(--text-muted); }
+
+.field-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.field-row .field { min-width: 140px; }
+.field-row .field select, .field-row .field input { width: 100%; }
+
+#shiftNameNew { margin-top: 6px; }
+
+.date-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+.override-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
+.override-row .ov-date { font-weight: 600; min-width: 100px; }
+.override-row .ov-meta { flex: 1; color: var(--text-muted); }
+.override-row button { border: none; background: none; cursor: pointer; color: var(--danger); font-size: 12px; }

@@ -11,13 +11,36 @@ function toHHMM(mins) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+// Turnos de un día concreto: la plantilla semanal (shifts), con las horas
+// sustituidas por la excepción de esa fecha si existe (shift_date_overrides) —
+// el turno sigue abierto, solo con otro horario ese día en concreto.
 async function getShiftsForDate(restaurantId, dateStr) {
   const dow = dayjs(dateStr).day(); // 0=Sunday
-  const { rows } = await db.query(
+  const { rows: base } = await db.query(
     `SELECT * FROM shifts WHERE restaurant_id = $1 AND day_of_week = $2 ORDER BY start_time`,
     [restaurantId, dow]
   );
-  return rows;
+  const { rows: overrides } = await db.query(
+    `SELECT * FROM shift_date_overrides WHERE restaurant_id = $1 AND date = $2`,
+    [restaurantId, dateStr]
+  );
+  if (!overrides.length) return base;
+
+  const overrideByName = {};
+  overrides.forEach(o => { overrideByName[o.shift_name] = o; });
+  const merged = base.map(s => overrideByName[s.name]
+    ? { ...s, start_time: overrideByName[s.name].start_time, end_time: overrideByName[s.name].end_time }
+    : s);
+  // Excepción para un turno que ese día de la semana no tiene plantilla (caso raro) —
+  // se añade igualmente, con desfase de última entrada 0 por defecto.
+  for (const name of Object.keys(overrideByName)) {
+    if (!merged.some(s => s.name === name)) {
+      merged.push({ id: null, restaurant_id: restaurantId, day_of_week: dow, name,
+        start_time: overrideByName[name].start_time, end_time: overrideByName[name].end_time,
+        last_seating_offset_minutes: 0 });
+    }
+  }
+  return merged;
 }
 
 async function isClosed(restaurantId, dateStr) {

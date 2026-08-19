@@ -119,6 +119,21 @@ async function initDb() {
       note TEXT
     );
 
+    -- Excepción de horario para una fecha concreta (mismo turno, horas distintas a las
+    -- de la plantilla semanal de "shifts") — igual que "Horario reservable → aplicar a
+    -- Hoy/Entre dos fechas/Días específicos" en Cover. No es un cierre (eso sigue siendo
+    -- "closures"): el turno sigue abierto, solo con otro horario ese día.
+    CREATE TABLE IF NOT EXISTS shift_date_overrides (
+      id SERIAL PRIMARY KEY,
+      restaurant_id INTEGER NOT NULL REFERENCES restaurants(id),
+      date TEXT NOT NULL,
+      shift_name TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      UNIQUE(restaurant_id, date, shift_name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_shift_overrides_date ON shift_date_overrides(restaurant_id, date);
+
     CREATE TABLE IF NOT EXISTS customers (
       id SERIAL PRIMARY KEY,
       restaurant_id INTEGER NOT NULL REFERENCES restaurants(id),

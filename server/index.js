@@ -336,10 +336,87 @@ app.patch('/api/reservations/:id/table', adminAuth.requireAdminAuth, async (req,
   res.json({ ...updatedRows[0], tables: tableRows.map(t => t.name) });
 });
 
-// --- Shifts (admin) ---------------------------------------------------------
+// --- Shifts / horario semanal (admin) ----------------------------------------
+// La plantilla semanal: un turno (p. ej. "Comida") tiene un horario por día de la
+// semana. "Todos los días" en el panel simplemente llama a esta ruta 7 veces (una
+// por day_of_week), no es un concepto aparte en la base de datos.
 app.get('/api/shifts', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
   const { rows } = await db.query('SELECT * FROM shifts WHERE restaurant_id = $1 ORDER BY day_of_week, start_time', [req.restaurant.id]);
   res.json(rows);
+});
+
+// Crea o actualiza el turno de un día de la semana concreto (mismo nombre +
+// mismo day_of_week = se actualiza en vez de duplicarse).
+app.post('/api/shifts', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+  const { name, dayOfWeek, startTime, endTime, lastSeatingOffsetMinutes } = req.body;
+  if (!name || dayOfWeek == null || !startTime || !endTime) {
+    return res.status(400).json({ error: 'name, dayOfWeek, startTime y endTime son obligatorios' });
+  }
+  const { rows: existing } = await db.query(
+    'SELECT id FROM shifts WHERE restaurant_id = $1 AND name = $2 AND day_of_week = $3',
+    [req.restaurant.id, name, dayOfWeek]
+  );
+  let row;
+  if (existing.length) {
+    const { rows } = await db.query(
+      'UPDATE shifts SET start_time = $1, end_time = $2, last_seating_offset_minutes = $3 WHERE id = $4 RETURNING *',
+      [startTime, endTime, lastSeatingOffsetMinutes || 0, existing[0].id]
+    );
+    row = rows[0];
+  } else {
+    const { rows } = await db.query(
+      'INSERT INTO shifts (restaurant_id, name, day_of_week, start_time, end_time, last_seating_offset_minutes) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [req.restaurant.id, name, dayOfWeek, startTime, endTime, lastSeatingOffsetMinutes || 0]
+    );
+    row = rows[0];
+  }
+  res.status(201).json(row);
+});
+
+// Quita ese turno de ese día de la semana por completo (no hay servicio ese día,
+// de forma recurrente — distinto de "closures", que es un cierre puntual de fecha).
+app.delete('/api/shifts/:id', adminAuth.requireAdminAuth, async (req, res) => {
+  await db.query('DELETE FROM shifts WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// --- Excepciones de horario por fecha concreta -------------------------------
+// El turno sigue abierto, solo con otro horario ese día (no confundir con un
+// cierre — ver "closures" más abajo).
+app.get('/api/shift-date-overrides', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from y to son obligatorios' });
+  const { rows } = await db.query(
+    'SELECT * FROM shift_date_overrides WHERE restaurant_id = $1 AND date BETWEEN $2 AND $3 ORDER BY date, shift_name',
+    [req.restaurant.id, from, to]
+  );
+  res.json(rows);
+});
+
+// Body: { dates: ['2026-08-25', ...], shiftName, startTime, endTime } — "Entre dos
+// fechas" y "Días específicos" del panel expanden a una lista de fechas en el
+// propio navegador antes de llamar aquí; esta ruta solo hace upsert fecha a fecha.
+app.post('/api/shift-date-overrides', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+  const { dates, shiftName, startTime, endTime } = req.body;
+  if (!Array.isArray(dates) || !dates.length || !shiftName || !startTime || !endTime) {
+    return res.status(400).json({ error: 'dates (lista), shiftName, startTime y endTime son obligatorios' });
+  }
+  const saved = [];
+  for (const date of dates) {
+    const { rows } = await db.query(`
+      INSERT INTO shift_date_overrides (restaurant_id, date, shift_name, start_time, end_time)
+      VALUES ($1,$2,$3,$4,$5)
+      ON CONFLICT (restaurant_id, date, shift_name) DO UPDATE SET start_time = excluded.start_time, end_time = excluded.end_time
+      RETURNING *
+    `, [req.restaurant.id, date, shiftName, startTime, endTime]);
+    saved.push(rows[0]);
+  }
+  res.status(201).json(saved);
+});
+
+app.delete('/api/shift-date-overrides/:id', adminAuth.requireAdminAuth, async (req, res) => {
+  await db.query('DELETE FROM shift_date_overrides WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
 });
 
 // --- Cierres (día entero o un turno concreto) ---------------------------------
