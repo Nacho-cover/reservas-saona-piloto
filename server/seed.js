@@ -130,12 +130,17 @@ async function seed() {
     // de admin sin pasar por ese límite.
     await addCombo(salaInteriorTables.map(([n]) => n), 99, 250, 'Cierre total Sala Interior (buyout)');
     // [mesas, min, max] — copiado literal de la pantalla de combinaciones de Cover para
-    // Plaza España. No incluye (todavía) una fila cuyas mesas no se llegaron a capturar
-    // en la captura (aforo 14/12) — pendiente de confirmar con el local antes de añadirla.
+    // Plaza España.
     const realCombos = [
       [['1', '22', '510', '516'], 3, 4],
       [['1', '516'], 4, 6],
       [['10', '11'], 6, 8],
+      // Aforo estimado (8-10): Cover no muestra el mín/máx de esta combinación en la
+      // pantalla de combinaciones, solo qué mesas la forman. Estimado por patrón con
+      // combos vecinas ya confirmadas (10,11 y 11,12 dan 6-8; añadir una mesa más al
+      // combo vecino sube +2 en ambos extremos, ver 4,5→4,5,6). Pendiente de confirmar
+      // el número real con el local.
+      [['10', '11', '12'], 8, 10],
       [['11', '12'], 6, 8],
       [['14', '15', '16', '17', '18', '19', '20', '21', '22', '510', '511', '512', '513', '514', '515', '519'], 30, 32],
       [['14', '15', '16', '17', '18', '19', '20', '21', '511', '512', '513', '514', '515', '519'], 28, 30],
