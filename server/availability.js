@@ -180,7 +180,11 @@ async function getCombinationsForDate(restaurantId, dateStr) {
 
 // Finds a table (or an explicit combination of tables) free for [start, start+duration)
 // at partySize, using only the tables/combinations that belong to the plan active on dateStr.
-async function findAvailableTable(restaurantId, dateStr, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
+// zoneId (optional): restrict to that zone only — mirrors Cover's "Zona" selector on the
+// web widget (Configuración → Condiciones de reserva → 1ª Característica). A combo only
+// counts as belonging to a zone if every one of its member tables does; none of the real
+// combos span zones today, but a mixed one shouldn't silently match a zone filter.
+async function findAvailableTable(restaurantId, dateStr, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId, zoneId) {
   const allTables = await getActiveTables(restaurantId, dateStr);
   const reqEnd = startMinutes + durationMinutes;
 
@@ -195,6 +199,7 @@ async function findAvailableTable(restaurantId, dateStr, startMinutes, durationM
   // (e.g. 8 people needing two 4-tops) would wrongly get excluded before the combo search.
   const singleCandidates = allTables
     .filter(t => partySize <= t.capacity_max)
+    .filter(t => !zoneId || t.zone_id === zoneId)
     .sort((a, b) => a.capacity_max - b.capacity_max);
   for (const t of singleCandidates) {
     if (partySize >= t.capacity_min && await isFree(t)) return [t];
@@ -206,6 +211,7 @@ async function findAvailableTable(restaurantId, dateStr, startMinutes, durationM
   // con la suma de las mesas (dos mesas de 2 pueden dar servicio a 6 por las sillas de
   // esquina que se añaden al juntarlas). Si no se fijó, se usa la suma de siempre.
   const combos = (await getCombinationsForDate(restaurantId, dateStr))
+    .filter(c => !zoneId || c.tables.every(t => t.zone_id === zoneId))
     .map(c => ({
       ...c,
       combinedMin: c.capacity_min != null ? c.capacity_min : 1,
@@ -271,14 +277,14 @@ async function hasCapacityRoom(restaurantId, dateStr, startMinutes, partySize, e
 }
 
 // Public: available time slots for a date/party size, combinando disponibilidad
-// de mesa Y cupo de aforo por franja.
-async function getAvailability(restaurant, dateStr, partySize) {
+// de mesa Y cupo de aforo por franja. zoneId opcional: ver findAvailableTable.
+async function getAvailability(restaurant, dateStr, partySize, zoneId) {
   const duration = restaurant.default_duration_minutes;
   const buffer = restaurant.turnover_buffer_minutes;
   const slots = await candidateSlots(restaurant, dateStr);
   const results = [];
   for (const slot of slots) {
-    const table = await findAvailableTable(restaurant.id, dateStr, slot.minutes, duration, partySize, buffer, null);
+    const table = await findAvailableTable(restaurant.id, dateStr, slot.minutes, duration, partySize, buffer, null, zoneId);
     const capOk = await hasCapacityRoom(restaurant.id, dateStr, slot.minutes, partySize, null);
     results.push({ time: slot.time, shift: slot.shift, available: !!table && capOk });
   }
@@ -400,3 +406,4 @@ module.exports = {
   resolveFloorPlanId, getCombinationsForDate,
   getZonesForDate, getTableMap, validateChosenTables,
 };
+

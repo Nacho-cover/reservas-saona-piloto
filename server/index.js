@@ -69,15 +69,25 @@ app.get('/api/restaurants/:restaurantId', requireRestaurant, (req, res) => {
 });
 
 // --- Public: availability -----------------------------------------------
-// GET /api/availability?restaurantId=1&date=2026-08-15&partySize=4
+// GET /api/availability?restaurantId=1&date=2026-08-15&partySize=4&zoneId=2
 app.get('/api/availability', requireRestaurant, async (req, res) => {
-  const { date, partySize } = req.query;
+  const { date, partySize, zoneId } = req.query;
   if (!date || !partySize) return res.status(400).json({ error: 'date y partySize son obligatorios' });
   if (dayjs(date).isBefore(dayjs().subtract(1, 'day'))) {
     return res.status(400).json({ error: 'La fecha ya ha pasado' });
   }
-  const slots = await availability.getAvailability(req.restaurant, date, Number(partySize));
+  const slots = await availability.getAvailability(req.restaurant, date, Number(partySize), zoneId ? Number(zoneId) : null);
   res.json({ date, partySize: Number(partySize), slots });
+});
+
+// --- Public: zonas del plano activo ese día (para el selector "Zona" del cliente,
+// igual que el que ya tiene Cover en Condiciones de reserva) ---------------------
+// GET /api/zones-for-date?restaurantId=1&date=2026-08-15
+app.get('/api/zones-for-date', requireRestaurant, async (req, res) => {
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ error: 'date es obligatorio' });
+  const zones = await availability.getZonesForDate(req.restaurant.id, date);
+  res.json(zones.map(z => ({ id: z.id, name: z.name })));
 });
 
 // --- Public: real floor plan (per-table status) for a chosen date/time/party ---
@@ -161,11 +171,12 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
       return res.status(409).json({ error: 'La mesa elegida ya no está disponible. Vuelve a elegir mesa en el plano.' });
     }
   } else {
+    const zoneId = req.body.zoneId ? Number(req.body.zoneId) : null;
     tables = await availability.findAvailableTable(
-      restaurant.id, date, startMinutes, duration, Number(partySize), buffer, null
+      restaurant.id, date, startMinutes, duration, Number(partySize), buffer, null, zoneId
     );
     if (!tables) {
-      return res.status(409).json({ error: 'Ya no hay disponibilidad para esa franja. Elige otra hora.' });
+      return res.status(409).json({ error: 'Ya no hay disponibilidad para esa franja en la zona elegida. Elige otra hora o zona.' });
     }
   }
   if (!(await availability.hasCapacityRoom(restaurant.id, date, startMinutes, Number(partySize), null))) {

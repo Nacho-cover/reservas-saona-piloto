@@ -5,6 +5,8 @@ const state = {
   date: null,
   partySize: null,
   selectedTime: null,
+  zoneId: null,
+  zoneName: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -50,6 +52,29 @@ function initDateInput() {
   input.value = todayISO();
 }
 
+// El plano (y por tanto qué zonas hay) puede variar según la fecha, igual que en
+// Cover — se recarga el selector cada vez que cambia la fecha. Si solo hay una
+// zona (o ninguna, planos sin zonas asignadas) no tiene sentido elegir: se oculta
+// el campo entero en vez de mostrar un desplegable con una sola opción.
+async function loadZonesForDate(date) {
+  const select = $('zoneInput');
+  const field = $('zoneField');
+  try {
+    const res = await fetch(`/api/zones-for-date?restaurantId=${RESTAURANT_ID}&date=${date}`);
+    const zones = res.ok ? await res.json() : [];
+    select.innerHTML = '<option value="">Cualquiera</option>';
+    for (const z of zones) {
+      const opt = document.createElement('option');
+      opt.value = z.id;
+      opt.textContent = z.name;
+      select.appendChild(opt);
+    }
+    field.classList.toggle('hidden', zones.length < 2);
+  } catch {
+    field.classList.add('hidden');
+  }
+}
+
 async function searchAvailability() {
   $('searchError').textContent = '';
   const date = $('dateInput').value;
@@ -58,12 +83,16 @@ async function searchAvailability() {
 
   state.date = date;
   state.partySize = Number(partySize);
+  const zoneSelect = $('zoneInput');
+  state.zoneId = zoneSelect.value || null;
+  state.zoneName = state.zoneId ? zoneSelect.options[zoneSelect.selectedIndex].textContent : null;
 
   const btn = $('searchBtn');
   btn.disabled = true;
   btn.textContent = 'Buscando…';
   try {
-    const res = await fetch(`/api/availability?restaurantId=${RESTAURANT_ID}&date=${date}&partySize=${partySize}`);
+    const zoneParam = state.zoneId ? `&zoneId=${state.zoneId}` : '';
+    const res = await fetch(`/api/availability?restaurantId=${RESTAURANT_ID}&date=${date}&partySize=${partySize}${zoneParam}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Error al consultar disponibilidad');
     renderSlots(data.slots);
@@ -129,15 +158,17 @@ function partyWord() {
   return `${state.partySize} ${state.partySize === 1 ? 'persona' : 'personas'}`;
 }
 
-// La mesa la asigna el restaurante automáticamente al confirmar (ver POST
-// /api/reservations sin tableIds) — el cliente no elige mesa.
+// La mesa concreta la asigna el restaurante automáticamente al confirmar (ver POST
+// /api/reservations sin tableIds) — el cliente no elige mesa, pero si eligió zona
+// (ver zoneInput) la asignación se restringe a esa zona.
 function goToForm() {
   $('formSummary').innerHTML = '';
   const chip = document.createElement('div');
   chip.className = 'recap-chip';
+  const zoneLine = state.zoneName ? `<br>${state.zoneName}` : '';
   chip.innerHTML = `
     <div class="recap-ic">🕐</div>
-    <div class="recap-txt"><b>${dateFmtLong()}</b><br>${state.selectedTime}h · ${partyWord()}</div>
+    <div class="recap-txt"><b>${dateFmtLong()}</b><br>${state.selectedTime}h · ${partyWord()}${zoneLine}</div>
   `;
   $('formSummary').appendChild(chip);
   showStep('step-form');
@@ -169,6 +200,7 @@ async function confirmReservation() {
         partySize: state.partySize,
         date: state.date,
         time: state.selectedTime,
+        zoneId: state.zoneId,
         source: 'web',
         consentAccepted,
       }),
@@ -211,6 +243,8 @@ function resetFlow() {
 window.addEventListener('DOMContentLoaded', async () => {
   initDateInput();
   await loadRestaurant();
+  await loadZonesForDate($('dateInput').value);
+  $('dateInput').addEventListener('change', (e) => { if (e.target.value) loadZonesForDate(e.target.value); });
   $('searchBtn').addEventListener('click', searchAvailability);
   $('backToSearch').addEventListener('click', () => showStep('step-search'));
   $('backToSlots').addEventListener('click', () => showStep('step-slots'));
