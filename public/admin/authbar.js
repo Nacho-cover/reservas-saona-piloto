@@ -1,5 +1,46 @@
-// Compartido por admin/index.html y admin/config.html: comprueba la sesión antes de
-// dejar ver nada del panel, y pinta el botón de cerrar sesión / cambiar contraseña.
+// Compartido por admin/index.html, admin/config.html y admin/horarios.html: comprueba
+// la sesión antes de dejar ver nada del panel, pinta el botón de cerrar sesión /
+// cambiar contraseña, y el selector de local (multi-restaurante).
+
+// Local que está gestionando el personal ahora mismo — persistido en este navegador,
+// no en la sesión del servidor, así que cada miembro del equipo puede tener elegido
+// un local distinto en su propio ordenador/tablet. Por defecto el 1 (primer local
+// sembrado) si nunca se ha elegido nada.
+const ADMIN_RESTAURANT_KEY = 'saona_admin_restaurant_id';
+function getRestaurantId() {
+  return Number(localStorage.getItem(ADMIN_RESTAURANT_KEY)) || 1;
+}
+
+// Pinta el selector de local en el topbar y recarga la página al cambiar — así no
+// hay que reescribir cada fetch de cada pantalla para reaccionar en caliente, y de
+// paso se refresca todo lo que dependía del local anterior (reservas, planos, etc.)
+async function renderRestaurantBar(container) {
+  if (!container) return;
+  let restaurants = [];
+  try {
+    const res = await fetch('/api/restaurants');
+    restaurants = res.ok ? await res.json() : [];
+  } catch { /* si falla, se deja el selector vacío en vez de romper la página */ }
+  if (restaurants.length <= 1) return; // con un solo local no tiene sentido mostrar el selector
+
+  const current = getRestaurantId();
+  const select = document.createElement('select');
+  select.id = 'restaurantSelect';
+  select.className = 'restaurant-select';
+  for (const r of restaurants) {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.name;
+    if (r.id === current) opt.selected = true;
+    select.appendChild(opt);
+  }
+  select.addEventListener('change', () => {
+    localStorage.setItem(ADMIN_RESTAURANT_KEY, select.value);
+    location.reload();
+  });
+  container.appendChild(select);
+}
+
 async function guardAdminPage() {
   const res = await fetch('/api/admin/session');
   const data = await res.json();

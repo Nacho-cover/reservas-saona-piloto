@@ -1,4 +1,4 @@
-const RESTAURANT_ID = 1;
+const RESTAURANT_ID = getRestaurantId(); // getRestaurantId() en authbar.js (selector de local)
 const $ = (id) => document.getElementById(id);
 
 const state = { date: todayISO(), reservations: [], tables: [], closures: [], shift: 'Comida', monthCursor: todayISO().slice(0, 7) };
@@ -469,6 +469,7 @@ async function loadMonthView() {
 window.addEventListener('DOMContentLoaded', async () => {
   if (!(await guardAdminPage())) return;
   renderSessionBar($('sessionBar'));
+  renderRestaurantBar($('restaurantBar'));
 
   $('dateFilter').value = state.date;
   populateTimeSelect();

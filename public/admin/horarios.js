@@ -1,4 +1,4 @@
-const RESTAURANT_ID = 1;
+const RESTAURANT_ID = getRestaurantId(); // getRestaurantId() en authbar.js (selector de local)
 const $ = (id) => document.getElementById(id);
 
 // day_of_week: 0=domingo ... 6=sábado (igual que en toda la app). Se muestra en
@@ -296,6 +296,7 @@ function renderOverridesList() {
 window.addEventListener('DOMContentLoaded', async () => {
   if (!(await guardAdminPage())) return;
   renderSessionBar($('sessionBar'));
+  renderRestaurantBar($('restaurantBar'));
 
   populateHourSelect($('shiftStart'));
   populateHourSelect($('shiftEnd'));

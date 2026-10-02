@@ -216,16 +216,30 @@ async function initDb() {
     ALTER TABLE reservations ADD COLUMN IF NOT EXISTS cancelled_by TEXT;
   `);
 
-  // Primer arranque: si no hay ninguna credencial de acceso al panel de personal,
-  // se crea una por defecto (usuario/contraseña iniciales que el propio equipo puede
-  // cambiar después desde el botón "Cambiar contraseña" del panel).
+  // Primer arranque: si no hay ninguna credencial de acceso al panel de personal, se crea una.
+  // Antes se sembraba con la contraseña fija "123456" — cualquiera que viera este código (o lo
+  // adivinara) tenía acceso al panel en producción. Ahora: si se define ADMIN_INITIAL_PASSWORD
+  // en el entorno (Render → Environment), se usa esa; si no, se genera una aleatoria y se
+  // imprime UNA VEZ en los logs del servidor (Render → Logs) para poder recuperarla, pero no se
+  // guarda en ningún fichero. El equipo puede cambiarla después desde "Cambiar contraseña".
   const { rows: adminRows } = await pool.query('SELECT COUNT(*)::int AS count FROM admin_credentials');
   if (adminRows[0].count === 0) {
     const crypto = require('crypto');
+    const username = process.env.ADMIN_INITIAL_USERNAME || 'ngarcia@gruposaona.com';
+    let initialPassword = process.env.ADMIN_INITIAL_PASSWORD;
+    if (!initialPassword) {
+      initialPassword = crypto.randomBytes(9).toString('base64url'); // ~12 caracteres al azar
+      console.log('='.repeat(72));
+      console.log('[admin] No se definió ADMIN_INITIAL_PASSWORD: contraseña inicial generada');
+      console.log(`[admin] usuario: ${username}`);
+      console.log(`[admin] contraseña: ${initialPassword}`);
+      console.log('[admin] Cámbiala desde el panel ("Cambiar contraseña") en cuanto entres.');
+      console.log('='.repeat(72));
+    }
     const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.scryptSync('123456', salt, 64).toString('hex');
+    const hash = crypto.scryptSync(initialPassword, salt, 64).toString('hex');
     await pool.query('INSERT INTO admin_credentials (username, password_hash) VALUES ($1, $2)',
-      ['ngarcia@gruposaona.com', `${salt}:${hash}`]);
+      [username, `${salt}:${hash}`]);
   }
 
   // Secreto para firmar los enlaces de la encuesta de satisfacción — se genera solo una vez.
@@ -241,7 +255,12 @@ async function initDb() {
   // reservas, combinaciones ni ningún otro dato.
   const { SALA_INTERIOR_POS, BARRA_POS } = require('./floorPositions');
   for (const [name, [x, y]] of Object.entries({ ...SALA_INTERIOR_POS, ...BARRA_POS })) {
-    await pool.query('UPDATE tables SET pos_x = $1, pos_y = $2 WHERE name = $3', [x, y, name]);
+    // Solo las mesas de Plaza España: otros locales (Balboa, Bilbao Henao...) también
+    // tienen mesas llamadas "1", "2"... y sin este filtro se les pisaría el plano.
+    await pool.query(
+      `UPDATE tables SET pos_x = $1, pos_y = $2
+        WHERE name = $3 AND restaurant_id = (SELECT id FROM restaurants WHERE name = 'Saona Plaza España' LIMIT 1)`,
+      [x, y, name]);
   }
 }
 

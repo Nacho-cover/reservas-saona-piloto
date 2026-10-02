@@ -1,4 +1,16 @@
-const RESTAURANT_ID = 1; // en producción: resuelto por subdominio / QR de mesa / selector de local
+const RESTAURANT_KEY = 'saona_restaurant_id';
+// Prioridad: ?restaurantId= en la URL (QR de mesa, enlace directo) > lo último
+// elegido en el selector (localStorage) > 1 por defecto. En producción esto se
+// podría resolver también por subdominio.
+function resolveRestaurantId() {
+  const fromUrl = Number(new URLSearchParams(location.search).get('restaurantId'));
+  if (fromUrl) {
+    localStorage.setItem(RESTAURANT_KEY, String(fromUrl));
+    return fromUrl;
+  }
+  return Number(localStorage.getItem(RESTAURANT_KEY)) || 1;
+}
+const RESTAURANT_ID = resolveRestaurantId();
 
 const state = {
   restaurant: null,
@@ -44,6 +56,35 @@ async function loadRestaurant() {
     if (i === 2) opt.selected = true;
     partySelect.appendChild(opt);
   }
+}
+
+// Solo se muestra si hay más de un local: con uno solo el selector no aporta
+// nada. Cambiar de local recarga la página con ?restaurantId=... para que un
+// enlace copiado (o recargar) mantenga el local elegido.
+async function renderRestaurantBar() {
+  const container = $('restaurantBar');
+  if (!container) return;
+  let restaurants = [];
+  try {
+    const res = await fetch('/api/restaurants');
+    restaurants = res.ok ? await res.json() : [];
+  } catch { /* si falla, se deja sin selector en vez de romper la página */ }
+  if (restaurants.length <= 1) return;
+
+  const select = document.createElement('select');
+  select.id = 'restaurantSelect';
+  select.className = 'restaurant-select';
+  for (const r of restaurants) {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.name;
+    if (r.id === RESTAURANT_ID) opt.selected = true;
+    select.appendChild(opt);
+  }
+  select.addEventListener('change', () => {
+    location.href = `/?restaurantId=${select.value}`;
+  });
+  container.appendChild(select);
 }
 
 function initDateInput() {
@@ -243,6 +284,7 @@ function resetFlow() {
 window.addEventListener('DOMContentLoaded', async () => {
   initDateInput();
   await loadRestaurant();
+  renderRestaurantBar();
   await loadZonesForDate($('dateInput').value);
   $('dateInput').addEventListener('change', (e) => { if (e.target.value) loadZonesForDate(e.target.value); });
   $('searchBtn').addEventListener('click', searchAvailability);

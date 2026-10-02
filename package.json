@@ -5,6 +5,8 @@
   "main": "server/index.js",
   "scripts": {
     "seed": "node server/seed.js",
+    "seed:extra": "node server/seedExtraRestaurants.js",
+    "migrate:real-restaurants": "node server/migrateRealRestaurantData.js",
     "start": "node server/index.js",
     "dev": "node server/index.js"
   },

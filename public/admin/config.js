@@ -1,4 +1,4 @@
-const RESTAURANT_ID = 1;
+const RESTAURANT_ID = getRestaurantId(); // getRestaurantId() en authbar.js (selector de local)
 const $ = (id) => document.getElementById(id);
 
 const state = { plans: [], selectedPlanId: null, zones: [], tables: [], combos: [], schedule: [] };
@@ -19,7 +19,12 @@ async function api(path, opts) {
 async function loadRestaurant() {
   const r = await api(`/api/restaurants/${RESTAURANT_ID}`);
   $('restaurantName').textContent = r.name;
+  state.restaurantName = r.name;
 }
+
+// Muros/escalera y rótulos de SALA_INTERIOR_FEATURES son de Plaza España: no
+// dibujarlos en el plano de otros locales.
+const isPlazaEspana = () => state.restaurantName === 'Saona Plaza España';
 
 // ---- Planos --------------------------------------------------------------
 async function loadPlans() {
@@ -87,9 +92,9 @@ async function loadPlanDetail() {
   renderTables();
   renderCombos();
   renderFloorPlan($('floorPlanView'), state.tables, {
-    getClass: (t) => (t.zoneName === 'Barra' ? 'zone-barra' : 'zone-sala'),
-    features: SALA_INTERIOR_FEATURES,
-    zoneLabels: SALA_INTERIOR_ZONE_LABELS,
+    getClass: (t) => (/barra/i.test(t.zoneName || '') ? 'zone-barra' : 'zone-sala'),
+    features: isPlazaEspana() ? SALA_INTERIOR_FEATURES : [],
+    zoneLabels: isPlazaEspana() ? SALA_INTERIOR_ZONE_LABELS : [],
     editable: true,
     onMove: async (table, x, y) => {
       await api(`/api/tables/${table.id}`, {
@@ -298,6 +303,7 @@ async function savePlan() {
 window.addEventListener('DOMContentLoaded', async () => {
   if (!(await guardAdminPage())) return;
   renderSessionBar($('sessionBar'));
+  renderRestaurantBar($('restaurantBar'));
 
   await loadRestaurant();
   await loadPlans();
@@ -306,6 +312,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('planSelect').addEventListener('change', async (e) => {
     state.selectedPlanId = Number(e.target.value);
     await loadPlanDetail();
+  });
+
+  // Exportar el plano que se está editando: abre la vista de impresión en otra
+  // pestaña y lanza el cuadro de «Guardar como PDF» (ver admin/plano-pdf.js).
+  $('exportPdfBtn').addEventListener('click', () => {
+    if (!state.selectedPlanId) return;
+    window.open(`/admin/plano-pdf.html?floorPlanId=${state.selectedPlanId}&print=1`, '_blank');
   });
 
   $('newPlanBtn').addEventListener('click', openPlanModal);

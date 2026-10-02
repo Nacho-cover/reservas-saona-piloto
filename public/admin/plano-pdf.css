@@ -1,0 +1,78 @@
+/* Página de exportación del plano de sala (admin/plano-pdf.html). Pensada para
+   «Imprimir → Guardar como PDF» en A4 apaisado: el plano va en SVG para que
+   salga vectorial y nítido a cualquier tamaño. */
+
+@page { size: A4 landscape; margin: 10mm; }
+
+body { background: #e9e7e1; }
+
+.pdf-toolbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.pdf-toolbar .muted { display: block; font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+.pdf-toolbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.pdf-check { font-size: 13px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; }
+
+.pdf-doc { padding: 20px 16px 40px; }
+
+/* Cada hoja simula un A4 apaisado en pantalla (277 x 190 mm útiles). */
+.pdf-page {
+  background: #fff; color: #1c1c1c;
+  width: 277mm; max-width: 100%; min-height: 190mm;
+  margin: 0 auto 20px; padding: 0;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+  display: flex; flex-direction: column;
+  page-break-after: always; break-after: page;
+}
+.pdf-page:last-child { page-break-after: auto; break-after: auto; }
+.pdf-page-inner { padding: 8mm 9mm; display: flex; flex-direction: column; flex: 1; }
+
+.pdf-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px;
+  border-bottom: 2px solid var(--brand); padding-bottom: 6px; margin-bottom: 8px; }
+.pdf-title { font-size: 20px; font-weight: 700; color: var(--brand-dark); margin: 0; }
+.pdf-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.pdf-meta { text-align: right; font-size: 11px; color: var(--text-muted); }
+
+.pdf-kpis { display: flex; gap: 18px; font-size: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+.pdf-kpis b { color: var(--brand-dark); font-size: 13px; }
+
+.pdf-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: #444; margin-bottom: 6px; }
+.pdf-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1.5px solid; }
+
+.pdf-plan { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.pdf-plan svg { width: 100%; height: auto; max-height: 138mm; display: block; }
+
+.pdf-foot { font-size: 10px; color: #888; margin-top: 6px; display: flex; justify-content: space-between; }
+
+/* Hoja 2: listados */
+.pdf-cols { display: grid; grid-template-columns: 1fr 1.25fr; gap: 7mm; align-items: start; }
+.pdf-zones { column-count: 2; column-gap: 5mm; }
+.pdf-section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--brand-dark); margin: 0 0 4px; }
+.pdf-zone { break-inside: avoid; margin-bottom: 6px; }
+.pdf-zone h3 { font-size: 11px; margin: 0 0 2px; display: flex; justify-content: space-between; }
+.pdf-zone h3 span { font-weight: 500; color: var(--text-muted); }
+table.pdf-table { width: 100%; border-collapse: collapse; font-size: 9.5px; font-variant-numeric: tabular-nums; }
+table.pdf-table th, table.pdf-table td { padding: 1.6px 5px; border-bottom: 1px solid #eceae4; text-align: left; }
+table.pdf-table th { font-weight: 600; color: var(--text-muted); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+table.pdf-table td.num, table.pdf-table th.num { text-align: right; }
+table.pdf-table tr { break-inside: avoid; }
+
+.muted { color: var(--text-muted); }
+
+@media print {
+  body { background: #fff; }
+  .pdf-toolbar { display: none; }
+  .pdf-doc { padding: 0; }
+  .pdf-page { box-shadow: none; margin: 0; width: auto; min-height: 0; height: 188mm; overflow: hidden; }
+  .pdf-page.pdf-page-list { height: auto; overflow: visible; }
+  .pdf-page-inner { padding: 2mm 3mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+@media (max-width: 700px) {
+  .pdf-cols { grid-template-columns: 1fr; }
+  .pdf-zones { column-count: 1; }
+}

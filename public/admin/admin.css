@@ -134,3 +134,10 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
 .session-bar { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-muted); }
 .session-bar .btn-link { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 13px; padding: 0; }
 .session-bar .btn-link:hover { text-decoration: underline; }
+
+/* Selector de local (multi-restaurante) en el topbar de staff — ver authbar.js */
+.restaurant-select {
+  font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--border, #d8ddd6); background: #fff; color: var(--text, #163627);
+  cursor: pointer;
+}

@@ -64,6 +64,14 @@ app.post('/api/admin/change-password', adminAuth.requireAdminAuth, async (req, r
 });
 
 // --- Public: restaurant info -------------------------------------------
+// Lista de locales para el selector (web de cliente y panel de staff) — de
+// momento son todos los locales sembrados, sin filtro de "activo/inactivo"
+// porque esa columna no existe todavía en el modelo de datos.
+app.get('/api/restaurants', async (req, res) => {
+  const { rows } = await db.query('SELECT id, name, address FROM restaurants ORDER BY name');
+  res.json(rows);
+});
+
 app.get('/api/restaurants/:restaurantId', requireRestaurant, (req, res) => {
   res.json(req.restaurant);
 });

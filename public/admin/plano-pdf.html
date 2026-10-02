@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plano de sala – Exportar PDF</title>
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/admin/plano-pdf.css">
+</head>
+<body>
+<div class="pdf-toolbar">
+  <div>
+    <strong>Exportar plano a PDF</strong>
+    <span class="muted">En el cuadro de impresión elige «Guardar como PDF». Sale en A4 apaisado.</span>
+  </div>
+  <div class="pdf-toolbar-actions">
+    <label class="pdf-check"><input type="checkbox" id="optList" checked> Incluir listado de mesas y combinaciones</label>
+    <button class="btn btn-primary" id="printBtn" type="button">Guardar como PDF / Imprimir</button>
+    <button class="btn btn-secondary" id="closeBtn" type="button">Cerrar</button>
+  </div>
+</div>
+
+<main id="doc" class="pdf-doc">
+  <p class="muted" id="loading">Cargando plano…</p>
+</main>
+
+<script src="/admin/authbar.js"></script>
+<script src="/admin/floorplan.js"></script>
+<script src="/admin/plano-pdf.js"></script>
+</body>
+</html>

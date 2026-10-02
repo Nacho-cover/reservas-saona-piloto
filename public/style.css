@@ -43,6 +43,16 @@ body {
 .brand-name { font-weight: 700; font-size: 16px; }
 .brand-sub { font-size: 13px; opacity: 0.85; }
 
+.topbar-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+/* Selector de local (multi-restaurante) en la web de cliente — ver app.js */
+.restaurant-select {
+  font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12);
+  color: #fff; cursor: pointer;
+}
+.restaurant-select option { color: var(--text); }
+
 main { flex: 1; padding: 16px; padding-bottom: 32px; }
 
 .card {

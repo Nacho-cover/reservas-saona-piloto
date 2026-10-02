@@ -16,6 +16,7 @@
       <div class="admin-sub">Planos, zonas, mesas y combinaciones</div>
     </div>
     <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap">
+      <div id="restaurantBar"></div>
       <div id="sessionBar"></div>
       <a class="btn btn-secondary" href="/admin/horarios.html">Horarios</a>
       <a class="btn btn-secondary" href="/admin/">&larr; Volver a reservas</a>
@@ -41,7 +42,10 @@
   <section class="cfg-card">
     <div class="cfg-card-header">
       <h2>Editando plano:</h2>
-      <select id="planSelect"></select>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+        <select id="planSelect"></select>
+        <button class="btn btn-secondary" id="exportPdfBtn" type="button" title="Plano, mesas por zona y combinaciones en A4 apaisado">Exportar PDF</button>
+      </div>
     </div>
 
     <!-- Plano visual -->
