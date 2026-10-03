@@ -13,6 +13,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// API de integración (solo lectura, con clave) para que otras apps lean locales y
+// planos de sala — ver server/integrationApi.js y docs/API-planos.md.
+app.use('/api/v1', require('./integrationApi'));
+
 // --- Helpers -----------------------------------------------------------
 async function getRestaurant(id) {
   const { rows } = await db.query('SELECT * FROM restaurants WHERE id = $1', [id]);
