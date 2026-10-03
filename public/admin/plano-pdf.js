@@ -1,4 +1,5 @@
-// Exportación del plano de sala a PDF (admin/plano-pdf.html?floorPlanId=N).
+// Exportación del plano de sala a PDF (admin/plano-pdf.html?floorPlanId=N, o
+// ?floorPlanId=all para todos los planos del local en un solo documento).
 // Dibuja el plano en SVG con la misma geometría que el editor de config.html
 // (lienzo 1400x820, posiciones en % y mesas de 58px / 46px en barra), recortado
 // al contenido para aprovechar la hoja, y añade una segunda hoja con el listado
@@ -7,7 +8,9 @@
 
 const RESTAURANT_ID = getRestaurantId();
 const params = new URLSearchParams(location.search);
-const PLAN_ID = Number(params.get('floorPlanId')) || null;
+const PLAN_PARAM = params.get('floorPlanId');
+const ALL_PLANS = PLAN_PARAM === 'all';
+const PLAN_ID = ALL_PLANS ? null : (Number(PLAN_PARAM) || null);
 
 const CANVAS_W = 1400, CANVAS_H = 820; // igual que .fp-canvas en floorplan.css
 const TABLE_SIZE = 58, BAR_SIZE = 46;
@@ -39,9 +42,22 @@ function buildSvg(tables, zoneStyle, showPlazaFeatures) {
   const placed = tables.filter(t => t.pos_x != null && t.pos_y != null);
   if (!placed.length) return null;
 
-  const items = placed.map(t => {
-    const size = isBar(t.zoneName) ? BAR_SIZE : TABLE_SIZE;
-    return { t, size, cx: (t.pos_x / 100) * CANVAS_W, cy: (t.pos_y / 100) * CANVAS_H };
+  // En planos muy densos (las coordenadas de Cover juntan mucho algunas zonas) se
+  // reduce el tamaño de las mesas para que no se monten unas sobre otras: se toma la
+  // distancia típica al vecino más cercano (percentil 30) como tope, sin bajar de 40px
+  // para que nombre y aforo se sigan leyendo.
+  const pts = placed.map(t => [(t.pos_x / 100) * CANVAS_W, (t.pos_y / 100) * CANVAS_H]);
+  const nn = pts.map(([x, y], i) => {
+    let d = Infinity;
+    pts.forEach(([x2, y2], k) => { if (k !== i) d = Math.min(d, Math.max(Math.abs(x - x2), Math.abs(y - y2))); });
+    return d;
+  }).sort((a, b) => a - b);
+  const p30 = nn.length > 1 ? nn[Math.floor(nn.length * 0.3)] : Infinity;
+  const fit = Math.max(40, Math.min(TABLE_SIZE, p30 - 4));
+  const scale = Math.min(1, fit / TABLE_SIZE);
+  const items = placed.map((t, i) => {
+    const size = (isBar(t.zoneName) ? BAR_SIZE : TABLE_SIZE) * scale;
+    return { t, size, scale, cx: pts[i][0], cy: pts[i][1] };
   });
 
   // Recorta el lienzo al contenido (+ margen) para que el plano llene la hoja.
@@ -72,23 +88,24 @@ function buildSvg(tables, zoneStyle, showPlazaFeatures) {
     parts.push(`<text x="${l.x / 100 * CANVAS_W + 8}" y="${l.y / 100 * CANVAS_H + 16}" font-size="14" font-weight="700" fill="#6b6b6b" letter-spacing="0.5">${esc(l.label.toUpperCase())}</text>`);
   }
 
-  for (const { t, size, cx, cy } of items) {
+  for (const { t, size, scale, cx, cy } of items) {
     const st = zoneStyle(t.zoneName);
     const shape = isBar(t.zoneName)
       ? `<circle cx="${cx}" cy="${cy}" r="${size / 2}" fill="${st.fill}" stroke="${st.stroke}" stroke-width="2.5"/>`
       : `<rect x="${cx - size / 2}" y="${cy - size / 2}" width="${size}" height="${size}" rx="9" fill="${st.fill}" stroke="${st.stroke}" stroke-width="2.5"/>`;
-    const nameSize = String(t.name).length > 4 ? 12 : 16;
+    const nameSize = (String(t.name).length > 4 ? 12 : 16) * Math.max(scale, 0.7);
     const cap = `${t.capacity_min}-${t.capacity_max}`;
     parts.push(`<g>${shape}
-      <text x="${cx}" y="${cy + (isBar(t.zoneName) ? 5 : 1)}" font-size="${nameSize}" font-weight="700" text-anchor="middle" fill="#1c1c1c">${esc(t.name)}</text>
-      ${isBar(t.zoneName) ? '' : `<text x="${cx}" y="${cy + 17}" font-size="11.5" text-anchor="middle" fill="#555">${esc(cap)}</text>`}
+      <text x="${cx}" y="${cy + (isBar(t.zoneName) ? 5 : 1) * scale}" font-size="${nameSize}" font-weight="700" text-anchor="middle" fill="#1c1c1c">${esc(t.name)}</text>
+      ${isBar(t.zoneName) ? '' : `<text x="${cx}" y="${cy + 17 * scale}" font-size="${11.5 * Math.max(scale, 0.75)}" text-anchor="middle" fill="#555">${esc(cap)}</text>`}
     </g>`);
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vx} ${vy} ${vw} ${vh}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" role="img" aria-label="Plano de sala">${parts.join('')}</svg>`;
 }
 
-function render({ restaurant, plan, zones, tables, combos }) {
+function renderPlan({ restaurant, plan, zones, tables, combos }, idx = 0, total = 1) {
+  const footRight = total > 1 ? `Plano ${idx + 1} de ${total}` : '';
   const zoneIndex = new Map(zones.map((z, i) => [z.name, i]));
   const zoneStyle = (name) => zoneIndex.has(name) ? ZONE_COLORS[zoneIndex.get(name) % ZONE_COLORS.length] : NO_ZONE;
   const today = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -125,11 +142,11 @@ function render({ restaurant, plan, zones, tables, combos }) {
       </div>
       <div class="pdf-legend">${legend}<span class="muted">Cada mesa: nombre y aforo mín-máx</span></div>
       <div class="pdf-plan">${svg || '<p class="muted">Ninguna mesa de este plano tiene posición guardada.</p>'}</div>
-      <div class="pdf-foot"><span>Grupo Saona · Sistema de reservas</span><span>Hoja 1</span></div>
+      <div class="pdf-foot"><span>Grupo Saona · Sistema de reservas</span><span>${footRight}</span></div>
     </div></section>`;
 
   const zoneTables = byZone.filter(z => z.tables.length).map(z => `
-    <div class="pdf-zone">
+    <div class="pdf-zone${z.tables.length <= 25 ? ' pdf-zone-short' : ''}">
       <h3>${esc(z.name)} <span>${z.tables.length} mesas · ${z.tables.reduce((s, t) => s + (Number(t.capacity_max) || 0), 0)} pax</span></h3>
       <table class="pdf-table">
         <thead><tr><th>Mesa</th><th class="num">Aforo</th></tr></thead>
@@ -151,17 +168,40 @@ function render({ restaurant, plan, zones, tables, combos }) {
     : '<p class="muted">Este plano no tiene combinaciones.</p>';
 
   const page2 = `
-    <section class="pdf-page pdf-page-list" id="listPage"><div class="pdf-page-inner">
+    <section class="pdf-page pdf-page-list"><div class="pdf-page-inner">
       ${head('Mesas y combinaciones')}
       <div class="pdf-cols">
         <div class="pdf-section"><h2>Mesas por zona</h2><div class="pdf-zones">${zoneTables || '<p class="muted">Sin mesas.</p>'}</div></div>
         <div class="pdf-section"><h2>Combinaciones (${combos.length})</h2>${comboRows}</div>
       </div>
-      <div class="pdf-foot"><span>Grupo Saona · Sistema de reservas</span><span>Hoja 2</span></div>
+      <div class="pdf-foot"><span>Grupo Saona · Sistema de reservas</span><span>${footRight}</span></div>
     </div></section>`;
 
-  $('doc').innerHTML = page1 + page2;
-  document.title = `Plano ${restaurant.name} – ${plan.name}`; // nombre sugerido del PDF
+  return page1 + page2;
+}
+
+async function loadPlan(plan) {
+  const [zones, tables, combos] = await Promise.all([
+    api(`/api/zones?restaurantId=${RESTAURANT_ID}&floorPlanId=${plan.id}`),
+    api(`/api/tables?restaurantId=${RESTAURANT_ID}&floorPlanId=${plan.id}`),
+    api(`/api/combinations?restaurantId=${RESTAURANT_ID}&floorPlanId=${plan.id}`),
+  ]);
+  return { plan, zones, tables, combos };
+}
+
+// Selector de plano en la barra de la página: uno concreto o «Todos los planos».
+function renderPlanPicker(plans, current) {
+  const sel = $('planPick');
+  if (!sel) return;
+  sel.innerHTML = plans.map(p => `<option value="${p.id}">${esc(p.name)}${p.is_default ? ' (por defecto)' : ''}</option>`).join('')
+    + (plans.length > 1 ? `<option value="all">Todos los planos del local (${plans.length})</option>` : '');
+  sel.value = current;
+  sel.addEventListener('change', () => {
+    const u = new URL(location.href);
+    u.searchParams.set('floorPlanId', sel.value);
+    u.searchParams.delete('print');
+    location.href = u.toString();
+  });
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
@@ -169,8 +209,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('printBtn').addEventListener('click', () => window.print());
   $('closeBtn').addEventListener('click', () => (history.length > 1 ? history.back() : window.close()));
   $('optList').addEventListener('change', (e) => {
-    const p = $('listPage');
-    if (p) p.style.display = e.target.checked ? '' : 'none';
+    document.querySelectorAll('.pdf-page-list').forEach(p => { p.style.display = e.target.checked ? '' : 'none'; });
   });
 
   try {
@@ -178,14 +217,20 @@ window.addEventListener('DOMContentLoaded', async () => {
       api(`/api/restaurants/${RESTAURANT_ID}`),
       api(`/api/floor-plans?restaurantId=${RESTAURANT_ID}`),
     ]);
-    const plan = plans.find(p => p.id === PLAN_ID) || plans.find(p => p.is_default) || plans[0];
-    if (!plan) throw new Error('Este local no tiene ningún plano de sala.');
-    const [zones, tables, combos] = await Promise.all([
-      api(`/api/zones?restaurantId=${RESTAURANT_ID}&floorPlanId=${plan.id}`),
-      api(`/api/tables?restaurantId=${RESTAURANT_ID}&floorPlanId=${plan.id}`),
-      api(`/api/combinations?restaurantId=${RESTAURANT_ID}&floorPlanId=${plan.id}`),
-    ]);
-    render({ restaurant, plan, zones, tables, combos });
+    if (!plans.length) throw new Error('Este local no tiene ningún plano de sala.');
+    // Plano por defecto primero; el resto en el orden en que los devuelve la API.
+    const ordered = [...plans].sort((a, b) => b.is_default - a.is_default);
+    const selected = ALL_PLANS
+      ? ordered
+      : [plans.find(p => p.id === PLAN_ID) || plans.find(p => p.is_default) || plans[0]];
+    renderPlanPicker(ordered, ALL_PLANS ? 'all' : String(selected[0].id));
+    $('doc').innerHTML = `<p class="muted">Cargando ${selected.length > 1 ? selected.length + ' planos' : 'plano'}…</p>`;
+    const loaded = [];
+    for (const plan of selected) loaded.push(await loadPlan(plan)); // de uno en uno: no saturar el servidor
+    $('doc').innerHTML = loaded.map((d, i) => renderPlan({ restaurant, ...d }, i, loaded.length)).join('');
+    document.title = ALL_PLANS
+      ? `Planos ${restaurant.name} – todos`
+      : `Plano ${restaurant.name} – ${selected[0].name}`; // nombre sugerido del PDF
     if (params.get('print') === '1') setTimeout(() => window.print(), 300);
   } catch (err) {
     $('doc').innerHTML = `<p class="error">No se pudo cargar el plano: ${esc(err.message)}</p>`;

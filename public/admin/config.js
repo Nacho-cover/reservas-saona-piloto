@@ -320,6 +320,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (!state.selectedPlanId) return;
     window.open(`/admin/plano-pdf.html?floorPlanId=${state.selectedPlanId}&print=1`, '_blank');
   });
+  $('exportAllPdfBtn').addEventListener('click', () => {
+    window.open('/admin/plano-pdf.html?floorPlanId=all&print=1', '_blank');
+  });
 
   $('newPlanBtn').addEventListener('click', openPlanModal);
   $('planModalCancelBtn').addEventListener('click', closePlanModal);

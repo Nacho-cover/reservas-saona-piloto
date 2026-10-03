@@ -51,7 +51,11 @@ body { background: #e9e7e1; }
 .pdf-cols { display: grid; grid-template-columns: 1fr 1.25fr; gap: 7mm; align-items: start; }
 .pdf-zones { column-count: 2; column-gap: 5mm; }
 .pdf-section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--brand-dark); margin: 0 0 4px; }
-.pdf-zone { break-inside: avoid; margin-bottom: 6px; }
+.pdf-zone { margin-bottom: 6px; }
+.pdf-zone h3 { break-after: avoid; }
+/* Zonas cortas no se parten; las largas (Heron City, Eixample…) fluyen entre columnas y hojas
+   en vez de saltar enteras a la hoja siguiente dejando la columna vacía. */
+.pdf-zone.pdf-zone-short { break-inside: avoid; }
 .pdf-zone h3 { font-size: 11px; margin: 0 0 2px; display: flex; justify-content: space-between; }
 .pdf-zone h3 span { font-weight: 500; color: var(--text-muted); }
 table.pdf-table { width: 100%; border-collapse: collapse; font-size: 9.5px; font-variant-numeric: tabular-nums; }
