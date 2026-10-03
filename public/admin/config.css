@@ -50,3 +50,35 @@
   background: var(--surface); font-family: inherit;
 }
 .inline-form input[type="text"] { flex: 1; min-width: 160px; }
+
+/* --- Integración (API) --- */
+.api-endpoints { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.api-row { display: grid; grid-template-columns: 210px 1fr auto auto; gap: 8px; align-items: center; }
+.api-row .api-label { font-size: 13px; font-weight: 600; }
+.api-row .api-label small { display: block; font-weight: 400; color: var(--text-muted); }
+.api-row input[type=text] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); width: 100%; min-width: 0;
+}
+.api-row input[type=date] { padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
+.api-row .btn { padding: 8px 12px; font-size: 13px; }
+.api-preview { border: 1px solid var(--border); border-radius: 10px; margin: 6px 0 18px; overflow: hidden; }
+.api-preview-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--bg); font-size: 13px; }
+.api-preview pre {
+  margin: 0; padding: 12px; max-height: 360px; overflow: auto; font-size: 12px; line-height: 1.45;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #fbfaf7;
+}
+.api-sub { font-size: 14px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); margin: 18px 0 4px; }
+.api-key-new { border: 1px solid #b7d7c2; background: var(--brand-light); border-radius: 10px; padding: 12px; margin-bottom: 12px; font-size: 13.5px; }
+.api-copy-row { display: flex; gap: 8px; margin-top: 8px; }
+.api-copy-row input { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.api-key-revoked { opacity: 0.55; }
+.api-row-ok { color: var(--brand-dark); font-size: 12px; }
+.hidden { display: none !important; }
+@media (max-width: 760px) {
+  .api-row { grid-template-columns: 1fr auto auto; }
+  .api-row .api-label { grid-column: 1 / -1; }
+}
+#apiCard .btn-link { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 13px; padding: 0; text-decoration: none; }
+#apiCard .btn-link:hover { text-decoration: underline; }
+#apiCard code { font-size: 12px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }

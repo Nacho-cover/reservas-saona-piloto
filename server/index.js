@@ -16,6 +16,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 // API de integración (solo lectura, con clave) para que otras apps lean locales y
 // planos de sala — ver server/integrationApi.js y docs/API-planos.md.
 app.use('/api/v1', require('./integrationApi'));
+app.use('/api/admin/api-keys', require('./integrationApi').adminRouter);
 
 // --- Helpers -----------------------------------------------------------
 async function getRestaurant(id) {

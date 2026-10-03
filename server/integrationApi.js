@@ -1,40 +1,59 @@
 // API de integración (solo lectura) para que otras aplicaciones lean locales y
 // planos de sala sin pasar por la exportación a PDF. Montada en /api/v1.
-// Documentación: docs/API-planos.md
+// Documentación: docs/API-planos.md (también en GET /api/v1/docs).
 //
 // Autenticación: cabecera `X-API-Key: <clave>` (o `Authorization: Bearer <clave>`).
-// Las claves NUNCA se guardan en claro: en la tabla app_secrets hay una fila por
-// clave con key = 'api_key:<etiqueta>' y value = sha256(clave) en hexadecimal.
-// Así se pueden dar claves distintas a cada app y revocar una borrando su fila,
-// sin tocar el código ni las variables de entorno de Render.
+// También vale la sesión del panel de personal, para que el botón «Probar» de
+// Configuración de sala funcione sin pegar ninguna clave.
+// Las claves NUNCA se guardan en claro: tabla api_keys con el sha256 de cada una.
+// Se crean y revocan desde el panel (Configuración de sala → Integración) — ver
+// adminRouter más abajo, montado en /api/admin/api-keys.
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const db = require('./db');
 const availability = require('./availability');
+const adminAuth = require('./adminAuth');
 
 const router = express.Router();
 
 // --- Claves ------------------------------------------------------------------
 let keyCache = { at: 0, keys: [] };
+function clearKeyCache() { keyCache = { at: 0, keys: [] }; }
 async function loadKeys() {
   if (Date.now() - keyCache.at < 60_000) return keyCache.keys;
-  const { rows } = await db.query("SELECT key, value FROM app_secrets WHERE key LIKE 'api_key:%'");
-  keyCache = { at: Date.now(), keys: rows.map(r => ({ label: r.key.slice(8), hash: Buffer.from(r.value, 'hex') })) };
+  const { rows } = await db.query('SELECT id, label, key_hash FROM api_keys WHERE revoked_at IS NULL');
+  keyCache = { at: Date.now(), keys: rows.map(r => ({ id: r.id, label: r.label, hash: Buffer.from(r.key_hash, 'hex') })) };
   return keyCache.keys;
+}
+
+// «Último uso» se guarda como mucho una vez cada 5 minutos por clave.
+const lastTouched = new Map();
+function touchKey(id) {
+  const now = Date.now();
+  if (now - (lastTouched.get(id) || 0) < 5 * 60_000) return;
+  lastTouched.set(id, now);
+  db.query("UPDATE api_keys SET last_used_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1", [id]).catch(() => {});
 }
 
 async function requireApiKey(req, res, next) {
   try {
+    res.set('Cache-Control', 'no-store');
     const auth = req.get('authorization') || '';
     const provided = req.get('x-api-key') || (auth.startsWith('Bearer ') ? auth.slice(7) : '');
-    if (!provided) return res.status(401).json({ error: 'Falta la clave de API (cabecera X-API-Key).' });
+    if (!provided) {
+      const { admin_session: token } = adminAuth.parseCookies(req);
+      if (adminAuth.isValidSession(token)) { req.apiClient = 'panel'; return next(); }
+      return res.status(401).json({ error: 'Falta la clave de API (cabecera X-API-Key).' });
+    }
     const hash = crypto.createHash('sha256').update(provided.trim()).digest();
     const keys = await loadKeys();
     const match = keys.find(k => k.hash.length === hash.length && crypto.timingSafeEqual(k.hash, hash));
     if (!match) return res.status(401).json({ error: 'Clave de API no válida.' });
     req.apiClient = match.label;
-    res.set('Cache-Control', 'no-store');
+    touchKey(match.id);
     next();
   } catch (err) {
     next(err);
@@ -146,7 +165,15 @@ router.get('/', (req, res) => {
       'GET /api/v1/floor-plans/{id}?includeInactive=1',
       'GET /api/v1/export?plans=default|all',
     ],
+    docs: '/api/v1/docs',
   });
+});
+
+// Documentación en texto (Markdown), pública: no contiene datos de ningún local.
+router.get('/docs', (req, res) => {
+  const file = path.join(__dirname, '..', 'docs', 'API-planos.md');
+  if (!fs.existsSync(file)) return res.status(404).json({ error: 'Documentación no disponible.' });
+  res.type('text/markdown; charset=utf-8').send(fs.readFileSync(file, 'utf8'));
 });
 
 // Lista de locales con el resumen de sus planos (sin mesas).
@@ -239,5 +266,53 @@ router.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Error interno.' });
 });
 
+// --- Gestión de claves desde el panel (requiere sesión de personal) ----------
+const adminRouter = express.Router();
+adminRouter.use(adminAuth.requireAdminAuth);
+
+adminRouter.get('/', async (req, res, next) => {
+  try {
+    const { rows } = await db.query(
+      'SELECT id, label, key_prefix, created_at, last_used_at, revoked_at FROM api_keys ORDER BY revoked_at IS NOT NULL, id DESC');
+    res.json(rows.map(r => ({
+      id: r.id, label: r.label, prefix: r.key_prefix, createdAt: r.created_at,
+      lastUsedAt: r.last_used_at, revokedAt: r.revoked_at,
+    })));
+  } catch (err) { next(err); }
+});
+
+// Crea una clave nueva. Es la ÚNICA vez que se devuelve en claro.
+adminRouter.post('/', async (req, res, next) => {
+  try {
+    const label = String((req.body && req.body.label) || '').trim().slice(0, 60);
+    if (!label) return res.status(400).json({ error: 'Pon un nombre a la clave (p. ej. la app que la va a usar).' });
+    const key = 'saona_' + crypto.randomBytes(24).toString('base64url');
+    const hash = crypto.createHash('sha256').update(key).digest('hex');
+    const { rows } = await db.query(
+      'INSERT INTO api_keys (label, key_hash, key_prefix) VALUES ($1, $2, $3) RETURNING id, created_at',
+      [label, hash, key.slice(0, 10)]);
+    clearKeyCache();
+    res.status(201).json({ id: rows[0].id, label, key, prefix: key.slice(0, 10), createdAt: rows[0].created_at });
+  } catch (err) { next(err); }
+});
+
+// Revoca (no borra: queda el registro de que existió y cuándo se anuló).
+adminRouter.delete('/:id', async (req, res, next) => {
+  try {
+    const { rowCount } = await db.query(
+      "UPDATE api_keys SET revoked_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1 AND revoked_at IS NULL",
+      [Number(req.params.id) || 0]);
+    clearKeyCache();
+    if (!rowCount) return res.status(404).json({ error: 'Clave no encontrada o ya revocada.' });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+adminRouter.use((err, req, res, _next) => {
+  console.error('[api keys]', err);
+  res.status(500).json({ error: 'Error interno.' });
+});
+
 module.exports = router;
+module.exports.adminRouter = adminRouter;
 module.exports.loadPlans = loadPlans;

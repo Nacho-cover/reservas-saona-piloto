@@ -214,6 +214,18 @@ async function initDb() {
     ALTER TABLE reservations ADD COLUMN IF NOT EXISTS paid_at TEXT;
     ALTER TABLE reservations ADD COLUMN IF NOT EXISTS survey_sent_at TEXT;
     ALTER TABLE reservations ADD COLUMN IF NOT EXISTS cancelled_by TEXT;
+
+    -- Claves de la API de integración (/api/v1). Solo se guarda el sha256 de la
+    -- clave; key_prefix (primeros caracteres) sirve para reconocerla en el panel.
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id SERIAL PRIMARY KEY,
+      label TEXT NOT NULL,
+      key_hash TEXT NOT NULL UNIQUE,
+      key_prefix TEXT,
+      created_at TEXT NOT NULL DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+      last_used_at TEXT,
+      revoked_at TEXT
+    );
   `);
 
   // Primer arranque: si no hay ninguna credencial de acceso al panel de personal, se crea una.
@@ -241,6 +253,14 @@ async function initDb() {
     await pool.query('INSERT INTO admin_credentials (username, password_hash) VALUES ($1, $2)',
       [username, `${salt}:${hash}`]);
   }
+
+  // Claves de API creadas antes de existir la tabla api_keys (guardadas en app_secrets
+  // como 'api_key:<etiqueta>' = sha256): se pasan a api_keys una sola vez.
+  await pool.query(`
+    INSERT INTO api_keys (label, key_hash)
+    SELECT substring(key from 9), value FROM app_secrets WHERE key LIKE 'api_key:%'
+    ON CONFLICT (key_hash) DO NOTHING`);
+  await pool.query("DELETE FROM app_secrets WHERE key LIKE 'api_key:%'");
 
   // Secreto para firmar los enlaces de la encuesta de satisfacción — se genera solo una vez.
   const { rows: secretRows } = await pool.query("SELECT value FROM app_secrets WHERE key = 'survey_token_secret'");

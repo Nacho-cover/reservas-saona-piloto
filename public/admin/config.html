@@ -100,6 +100,43 @@
     </div>
   </section>
 
+  <!-- Integración (API) -->
+  <section class="cfg-card" id="apiCard">
+    <div class="cfg-card-header">
+      <h2>Integración (API)</h2>
+      <a class="btn-link" href="/api/v1/docs" target="_blank" rel="noopener">Documentación técnica</a>
+    </div>
+    <p class="cfg-hint">
+      Direcciones para que otra aplicación lea los planos sin exportar nada. Son de solo lectura y
+      piden una clave en la cabecera <code>X-API-Key</code>. «Probar» muestra aquí lo que recibiría
+      la otra aplicación.
+    </p>
+    <div id="apiEndpoints" class="api-endpoints"></div>
+    <div id="apiPreview" class="api-preview hidden">
+      <div class="api-preview-head">
+        <span id="apiPreviewMeta"></span>
+        <button class="btn-link" type="button" id="apiPreviewClose">Cerrar</button>
+      </div>
+      <pre id="apiPreviewBody"></pre>
+    </div>
+
+    <h3 class="api-sub">Claves de acceso</h3>
+    <p class="cfg-hint">Una clave por aplicación. La clave completa solo se muestra al crearla: cópiala entonces.
+      Si una se pierde o deja de usarse, revócala.</p>
+    <div id="apiKeyNew" class="api-key-new hidden">
+      <div><strong>Clave creada para «<span id="apiKeyNewLabel"></span>».</strong> Cópiala ahora: no se volverá a mostrar.</div>
+      <div class="api-copy-row">
+        <input type="text" id="apiKeyNewValue" readonly>
+        <button class="btn btn-primary" type="button" id="apiKeyNewCopy">Copiar</button>
+      </div>
+    </div>
+    <div id="apiKeysList" class="table-list"></div>
+    <form id="apiKeyForm" class="inline-form">
+      <input type="text" id="apiKeyLabel" placeholder="Nombre (p. ej. App de sala, ERP, BI…)" maxlength="60" required>
+      <button class="btn btn-primary" type="submit">Crear clave</button>
+    </form>
+  </section>
+
   <!-- Agenda -->
   <section class="cfg-card">
     <h2>Agenda: qué plano aplica cada día</h2>
@@ -139,5 +176,6 @@
 <script src="/admin/authbar.js"></script>
 <script src="/admin/floorplan.js"></script>
 <script src="/admin/config.js"></script>
+<script src="/admin/integracion.js"></script>
 </body>
 </html>

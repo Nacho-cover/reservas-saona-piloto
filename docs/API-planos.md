@@ -16,6 +16,7 @@ API de **solo lectura** para que otra aplicación lea los locales y sus planos d
 | Método y ruta | Qué devuelve |
 |---|---|
 | `GET /api/v1` | Índice de la API (público, sin datos). |
+| `GET /api/v1/docs` | Esta documentación en Markdown (pública). |
 | `GET /api/v1/restaurants` | Todos los locales con el resumen de sus planos (sin mesas). |
 | `GET /api/v1/restaurants/{id}` | Un local con su plano por defecto completo. |
 | `GET /api/v1/restaurants/{id}?plans=all` | Un local con **todos** sus planos completos. |
@@ -92,14 +93,15 @@ const { restaurants } = await res.json();
 
 ## Gestión de claves
 
-Las claves no se guardan en claro: en la tabla `app_secrets` hay una fila por clave con
-`key = 'api_key:<etiqueta>'` y `value = sha256(clave)` en hexadecimal. Así cada app puede tener
-su propia clave.
+Las claves se crean y se revocan desde el panel: **Configuración de sala → Integración (API)**.
 
-- **Crear una clave:** generar un valor aleatorio largo y guardar su hash:
-  `INSERT INTO app_secrets (key, value) VALUES ('api_key:nombre-app', encode(sha256('LA_CLAVE'::bytea), 'hex'));`
-- **Revocar una clave:** `DELETE FROM app_secrets WHERE key = 'api_key:nombre-app';`
-  (deja de funcionar en menos de 1 minuto, sin redesplegar).
+- **Crear:** se le pone un nombre (p. ej. la app que la va a usar) y se muestra la clave **una
+  sola vez**; después solo se ve su prefijo. Conviene una clave por aplicación.
+- **Revocar:** botón «Revocar»; deja de funcionar en menos de 1 minuto, sin redesplegar.
+- El panel muestra cuándo se creó cada clave y cuándo se usó por última vez.
+
+Internamente no se guardan en claro: la tabla `api_keys` solo tiene el sha256 de cada clave.
+Desde el panel, el botón «Probar» usa la propia sesión de personal (no hace falta pegar la clave).
 
 Errores: `400` parámetro inválido · `401` sin clave o clave incorrecta · `404` local o plano
 inexistente · `500` error interno. Siempre con cuerpo `{ "error": "..." }`.
