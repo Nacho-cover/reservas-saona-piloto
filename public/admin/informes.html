@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Informes – Staff</title>
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/admin/config.css">
+<link rel="stylesheet" href="/admin/informes.css">
+</head>
+<body>
+<div class="admin">
+  <header class="admin-topbar">
+    <div>
+      <div class="admin-title">Informes</div>
+      <div class="admin-sub">Descarga los informes de reservas y clientes de un local o de todo el grupo</div>
+    </div>
+    <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap">
+      <div id="sessionBar"></div>
+      <a class="btn btn-secondary" href="/admin/">&larr; Volver a reservas</a>
+    </div>
+  </header>
+
+  <section class="cfg-card">
+    <div class="cfg-card-header"><h2>Filtros</h2></div>
+    <div class="rep-filters">
+      <label class="field">
+        <span>Local</span>
+        <select id="fLocal"></select>
+      </label>
+      <label class="field">
+        <span>Fecha inicio</span>
+        <input type="date" id="fFrom">
+      </label>
+      <label class="field">
+        <span>Fecha fin</span>
+        <input type="date" id="fTo">
+      </label>
+      <label class="field">
+        <span>Tipo de fecha</span>
+        <select id="fDateType">
+          <option value="reserva">Fecha de la reserva</option>
+          <option value="anotacion">Fecha de anotación</option>
+        </select>
+      </label>
+    </div>
+    <div class="rep-quick" id="quickRanges">
+      <button type="button" data-range="today">Hoy</button>
+      <button type="button" data-range="yesterday">Ayer</button>
+      <button type="button" data-range="week">Esta semana</button>
+      <button type="button" data-range="lastweek">Semana pasada</button>
+      <button type="button" data-range="month">Este mes</button>
+      <button type="button" data-range="lastmonth">Mes pasado</button>
+      <button type="button" data-range="year">Este año</button>
+    </div>
+    <div class="rep-summary">
+      <button class="btn btn-primary" id="calcBtn" type="button">Calcular</button>
+      <div><span class="rep-sum-label">Total personas</span><strong id="sumPax">—</strong></div>
+      <div><span class="rep-sum-label">Total reservas</span><strong id="sumRes">—</strong></div>
+      <button class="btn btn-secondary" id="allBtn" type="button" style="margin-left:auto">⬇ Descargar todos en un Excel</button>
+    </div>
+    <p class="cfg-hint" id="allStatus"></p>
+  </section>
+
+  <div id="reportGroups"></div>
+
+  <section class="cfg-card">
+    <h2 style="margin-top:0">Informes de Cover que todavía no están</h2>
+    <p class="cfg-hint">La app aún no guarda los datos que necesitan:</p>
+    <ul class="rep-na" id="notAvailable"></ul>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script src="/admin/authbar.js"></script>
+<script src="/admin/informes.js"></script>
+</body>
+</html>

@@ -214,6 +214,9 @@ async function initDb() {
     ALTER TABLE reservations ADD COLUMN IF NOT EXISTS paid_at TEXT;
     ALTER TABLE reservations ADD COLUMN IF NOT EXISTS survey_sent_at TEXT;
     ALTER TABLE reservations ADD COLUMN IF NOT EXISTS cancelled_by TEXT;
+    -- Momento de la cancelación (misma zona horaria que created_at), para el informe
+    -- "canceladas dentro de las X horas antes de su reserva".
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS cancelled_at TEXT;
 
     -- Claves de la API de integración (/api/v1). Solo se guarda el sha256 de la
     -- clave; key_prefix (primeros caracteres) sirve para reconocerla en el panel.

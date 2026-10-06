@@ -1,4 +1,4 @@
-// Compartido por admin/index.html, admin/config.html y admin/horarios.html: comprueba
+// Compartido por admin/index.html, config.html, horarios.html e informes.html: comprueba
 // la sesión antes de dejar ver nada del panel, pinta el botón de cerrar sesión /
 // cambiar contraseña, y el selector de local (multi-restaurante).
 

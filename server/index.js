@@ -18,6 +18,9 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api/v1', require('./integrationApi'));
 app.use('/api/admin/api-keys', require('./integrationApi').adminRouter);
 
+// Informes descargables (equivalentes a los de Cover) — ver server/reports.js.
+app.use('/api/reports', require('./reports'));
+
 // --- Helpers -----------------------------------------------------------
 async function getRestaurant(id) {
   const { rows } = await db.query('SELECT * FROM restaurants WHERE id = $1', [id]);
@@ -304,13 +307,16 @@ app.patch('/api/reservations/:id', adminAuth.requireAdminAuth, async (req, res) 
   // de esto (ver availability.tableBusyRanges), no al terminar la duración estándar.
   const paidAt = (status === 'paid' && existing.status !== 'paid') ? dayjs().format('YYYY-MM-DD HH:mm:ss') : null;
   const cancelledByValue = status === 'cancelled' ? cancelledBy : null;
+  // Se guarda cuándo se canceló (para el informe de cancelaciones con poca antelación).
+  const markCancelledAt = status === 'cancelled' && existing.status !== 'cancelled';
 
   await db.query(`
     UPDATE reservations
     SET status = COALESCE($1, status), notes = COALESCE($2, notes), paid_at = COALESCE($3, paid_at),
-        cancelled_by = COALESCE($4, cancelled_by)
+        cancelled_by = COALESCE($4, cancelled_by),
+        cancelled_at = CASE WHEN $6::boolean THEN to_char(now(), 'YYYY-MM-DD HH24:MI:SS') ELSE cancelled_at END
     WHERE id = $5
-  `, [status || null, notes ?? null, paidAt, cancelledByValue, req.params.id]);
+  `, [status || null, notes ?? null, paidAt, cancelledByValue, req.params.id, markCancelledAt]);
   const { rows } = await db.query('SELECT * FROM reservations WHERE id = $1', [req.params.id]);
   res.json(rows[0]);
 });
@@ -319,7 +325,8 @@ app.patch('/api/reservations/:id', adminAuth.requireAdminAuth, async (req, res) 
 app.delete('/api/reservations/:id', adminAuth.requireAdminAuth, async (req, res) => {
   const { rows: existingRows } = await db.query('SELECT * FROM reservations WHERE id = $1', [req.params.id]);
   if (!existingRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
-  await db.query("UPDATE reservations SET status = 'cancelled' WHERE id = $1", [req.params.id]);
+  await db.query(`UPDATE reservations SET status = 'cancelled',
+    cancelled_at = COALESCE(cancelled_at, to_char(now(), 'YYYY-MM-DD HH24:MI:SS')) WHERE id = $1`, [req.params.id]);
   res.json({ ok: true });
 });
 
