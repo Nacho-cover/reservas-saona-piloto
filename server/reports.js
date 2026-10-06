@@ -571,6 +571,81 @@ router.get('/', (req, res) => {
   });
 });
 
+// Panel visual de la página de Informes: KPIs y series para los gráficos, con los
+// mismos filtros que los informes (local o todos, rango, tipo de fecha).
+router.get('/dashboard', async (req, res) => {
+  const ctx = parseContext(req.query);
+  if (dayjs(ctx.to).diff(dayjs(ctx.from), 'day') > 366) {
+    return res.status(400).json({ error: 'El rango de fechas no puede superar un año.' });
+  }
+  const { sql, params } = baseCte(ctx);
+  const VALIDA = `b.status NOT IN ('cancelled','no_show')`;
+  const dayExpr = ctx.dateType === 'anotacion' ? "to_char(b.anotada, 'YYYY-MM-DD')" : 'b.date';
+  try {
+    // En serie, no en paralelo: el pooler de Supabase limita las conexiones simultáneas.
+    const queries = [
+      [`${sql}
+        SELECT COUNT(*) FILTER (WHERE ${VALIDA})::int AS reservas,
+               COALESCE(SUM(b.party_size) FILTER (WHERE ${VALIDA}), 0)::int AS personas,
+               COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE b.status = 'no_show')::int AS no_show,
+               COUNT(*) FILTER (WHERE b.status = 'cancelled')::int AS canceladas,
+               ROUND(AVG(b.party_size) FILTER (WHERE ${VALIDA}), 1) AS pax_medio,
+               ROUND((AVG(EXTRACT(EPOCH FROM (b.inicio - b.anotada)) / 86400.0)
+                 FILTER (WHERE ${VALIDA} AND b.anotada IS NOT NULL))::numeric, 1) AS antelacion
+          FROM base b`, params],
+      [`${sql}
+        SELECT ${dayExpr} AS dia,
+               COALESCE(SUM(b.party_size) FILTER (WHERE b.turno = 'Comida'), 0)::int AS comida,
+               COALESCE(SUM(b.party_size) FILTER (WHERE b.turno <> 'Comida'), 0)::int AS cena
+          FROM base b WHERE ${VALIDA} GROUP BY 1 ORDER BY 1`, params],
+      [`${sql}
+        SELECT b.canal, COUNT(*)::int AS reservas, SUM(b.party_size)::int AS personas
+          FROM base b WHERE ${VALIDA} GROUP BY 1 ORDER BY 2 DESC`, params],
+      [`${sql}
+        SELECT substring(b.time, 1, 2) AS hora, SUM(b.party_size)::int AS personas
+          FROM base b WHERE ${VALIDA} GROUP BY 1 ORDER BY 1`, params],
+      [`${sql}
+        SELECT b.local, COALESCE(SUM(b.party_size) FILTER (WHERE ${VALIDA}), 0)::int AS personas,
+               COUNT(*) FILTER (WHERE ${VALIDA})::int AS reservas,
+               ROUND(100.0 * COUNT(*) FILTER (WHERE b.status = 'no_show') / NULLIF(COUNT(*), 0), 1) AS pct_no_show
+          FROM base b GROUP BY 1 ORDER BY 2 DESC`, params],
+      [`${sql}
+        SELECT b.estado, COUNT(*)::int AS reservas FROM base b GROUP BY 1 ORDER BY 2 DESC`, params],
+    ];
+    const results = [];
+    for (const [q, p] of queries) results.push(await db.query(q, p));
+    const [kpis, porDia, porCanal, porHora, porLocal, porEstado] = results;
+    const k = kpis.rows[0];
+    // Días sin reservas también aparecen en el gráfico (con 0), para no falsear la tendencia.
+    const byDay = new Map(porDia.rows.map(r => [r.dia, r]));
+    const dias = [];
+    for (let d = dayjs(ctx.from); !d.isAfter(dayjs(ctx.to)) && dias.length < 400; d = d.add(1, 'day')) {
+      const key = d.format('YYYY-MM-DD');
+      const r = byDay.get(key);
+      dias.push({ dia: key, comida: r ? r.comida : 0, cena: r ? r.cena : 0 });
+    }
+    res.json({
+      from: ctx.from, to: ctx.to, all: ctx.all,
+      kpis: {
+        reservas: k.reservas, personas: k.personas, canceladas: k.canceladas,
+        noShow: k.no_show, total: k.total,
+        pctNoShow: k.total ? Math.round(1000 * k.no_show / k.total) / 10 : null,
+        paxMedio: k.pax_medio != null ? Number(k.pax_medio) : null,
+        antelacion: k.antelacion != null ? Number(k.antelacion) : null,
+      },
+      porDia: dias,
+      porCanal: porCanal.rows,
+      porHora: porHora.rows,
+      porLocal: porLocal.rows.map(r => ({ ...r, pct_no_show: r.pct_no_show != null ? Number(r.pct_no_show) : null })),
+      porEstado: porEstado.rows,
+    });
+  } catch (err) {
+    console.error('[informes] dashboard:', err);
+    res.status(500).json({ error: 'No se pudo generar el panel.' });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   const report = REPORTS.find(r => r.id === req.params.id);
   if (!report) return res.status(404).json({ error: 'Informe no encontrado' });

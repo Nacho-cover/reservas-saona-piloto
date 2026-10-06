@@ -54,12 +54,39 @@
       <button type="button" data-range="year">Este año</button>
     </div>
     <div class="rep-summary">
-      <button class="btn btn-primary" id="calcBtn" type="button">Calcular</button>
-      <div><span class="rep-sum-label">Total personas</span><strong id="sumPax">—</strong></div>
-      <div><span class="rep-sum-label">Total reservas</span><strong id="sumRes">—</strong></div>
+      <button class="btn btn-secondary" id="calcBtn" type="button">↻ Actualizar</button>
       <button class="btn btn-secondary" id="allBtn" type="button" style="margin-left:auto">⬇ Descargar todos en un Excel</button>
     </div>
     <p class="cfg-hint" id="allStatus"></p>
+  </section>
+
+  <section class="cfg-card" id="dashCard">
+    <div class="cfg-card-header">
+      <h2>Resumen del periodo</h2>
+      <span class="dash-scope" id="dashScope"></span>
+    </div>
+    <div class="kpi-grid" id="kpis"></div>
+    <p class="cfg-hint dash-note">Reservas y comensales sin contar canceladas ni no show.</p>
+    <div class="chart-grid">
+      <figure class="chart-box chart-wide">
+        <figcaption>Comensales por día</figcaption>
+        <div class="chart-legend" id="legendDia"></div>
+        <div class="chart-canvas"><canvas id="chDia" role="img" aria-label="Comensales por día, comida y cena"></canvas></div>
+      </figure>
+      <figure class="chart-box">
+        <figcaption>Comensales por hora de la reserva</figcaption>
+        <div class="chart-canvas"><canvas id="chHora" role="img" aria-label="Comensales por hora de la reserva"></canvas></div>
+      </figure>
+      <figure class="chart-box">
+        <figcaption>Reservas por canal</figcaption>
+        <div class="chart-canvas"><canvas id="chCanal" role="img" aria-label="Reservas por canal"></canvas></div>
+      </figure>
+      <figure class="chart-box chart-wide">
+        <figcaption id="cap4">Comensales por local</figcaption>
+        <div class="chart-canvas" id="box4"><canvas id="ch4" role="img" aria-label="Comensales por local"></canvas></div>
+      </figure>
+    </div>
+    <p class="cfg-hint" id="dashEmpty" hidden>No hay reservas en este periodo con estos filtros.</p>
   </section>
 
   <div id="reportGroups"></div>
@@ -71,6 +98,7 @@
   </section>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
 <script src="/admin/authbar.js"></script>
 <script src="/admin/informes.js"></script>

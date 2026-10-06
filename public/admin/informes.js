@@ -263,20 +263,218 @@ async function downloadAll() {
   btn.disabled = false;
 }
 
-// "Calcular": totales del periodo (sin canceladas ni no show), como el contador de Cover.
+// --- Panel visual: KPIs y gráficos (Chart.js, cargado desde cdnjs) -----------------
+// Colores por papel: serie 1 azul (Comida / serie única), serie 2 naranja (Cena).
+// Paleta validada para daltonismo (comprobador de la guía de visualización).
+const VIZ = {
+  s1: '#2a78d6', s2: '#eb6834', surface: '#ffffff',
+  text: '#1c1c1c', muted: '#6b6b6b', grid: '#ecebe7',
+};
+const charts = {};
+const fmt = n => (n == null || Number.isNaN(n) ? '—' : Number(n).toLocaleString('es-ES'));
+
+function kpiTile(label, value, sub) {
+  return `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div>${sub ? `<div class="kpi-sub">${sub}</div>` : ''}</div>`;
+}
+
+function renderKpis(k) {
+  $('kpis').innerHTML = [
+    kpiTile('Reservas', fmt(k.reservas)),
+    kpiTile('Comensales', fmt(k.personas)),
+    kpiTile('Pax medio', fmt(k.paxMedio), 'por reserva'),
+    kpiTile('No show', k.pctNoShow == null ? '—' : `${fmt(k.pctNoShow)} %`, `${fmt(k.noShow)} reservas`),
+    kpiTile('Cancelaciones', fmt(k.canceladas), k.total ? `${fmt(Math.round(1000 * k.canceladas / k.total) / 10)} % del total` : ''),
+    kpiTile('Antelación media', k.antelacion == null ? '—' : `${fmt(k.antelacion)} días`, 'entre reservar y venir'),
+  ].join('');
+}
+
+// Agrupa la serie diaria por semana o por mes cuando el rango es largo, para que
+// las barras sigan siendo legibles.
+function bucketDays(dias) {
+  const n = dias.length;
+  if (n <= 62) {
+    return dias.map(d => ({
+      label: `${d.dia.slice(8, 10)}/${d.dia.slice(5, 7)}`,
+      title: new Date(d.dia + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }),
+      comida: d.comida, cena: d.cena,
+    }));
+  }
+  const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const byKey = new Map();
+  for (const d of dias) {
+    const date = new Date(d.dia + 'T12:00:00');
+    let key, label;
+    if (n <= 180) {
+      const monday = new Date(date); monday.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+      key = iso(monday); label = `Sem. ${key.slice(8, 10)}/${key.slice(5, 7)}`;
+    } else {
+      key = d.dia.slice(0, 7); label = `${MESES[date.getMonth()]} ${String(date.getFullYear()).slice(2)}`;
+    }
+    const b = byKey.get(key) || { label, title: label, comida: 0, cena: 0 };
+    b.comida += d.comida; b.cena += d.cena;
+    byKey.set(key, b);
+  }
+  return [...byKey.values()];
+}
+
+function baseOptions(extra = {}) {
+  return {
+    responsive: true, maintainAspectRatio: false, animation: false, locale: 'es-ES',
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1c1c1c', padding: 10, cornerRadius: 8, boxPadding: 4,
+        titleFont: { weight: '600' }, usePointStyle: true,
+        callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.parsed[c.chart.options.indexAxis === 'y' ? 'x' : 'y'])}` },
+      },
+    },
+    scales: {
+      x: { grid: { display: false }, border: { color: VIZ.grid }, ticks: { color: VIZ.muted, font: { size: 11 }, maxRotation: 0, autoSkipPadding: 8 } },
+      y: { beginAtZero: true, grid: { color: VIZ.grid }, border: { display: false }, ticks: { color: VIZ.muted, font: { size: 11 }, precision: 0 } },
+    },
+    ...extra,
+  };
+}
+
+// Barras finas, extremo redondeado de 4px (el pegado al eje queda recto) y 2px de hueco
+// entre barras y entre tramos apilados (borde del color del fondo).
+// En pantallas estrechas con muchas barras, el hueco baja a 1px para que no se coma la barra.
+const barStyle = color => ({
+  backgroundColor: color, borderColor: VIZ.surface,
+  borderWidth: c => (c.chart.chartArea && c.chart.chartArea.width / Math.max(1, c.chart.data.labels.length) < 14 ? 1 : 2),
+  borderRadius: 4, borderSkipped: 'start', maxBarThickness: 28, categoryPercentage: 0.8, barPercentage: 0.9,
+});
+
+function draw(id, config) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart($(id), config);
+}
+
+function renderCharts(d) {
+  if (!window.Chart) {
+    $('dashEmpty').textContent = 'No se han podido cargar los gráficos (¿sin conexión a internet?). Los informes siguen disponibles abajo.';
+    $('dashEmpty').hidden = false;
+    return;
+  }
+  // 1) Comensales por día, Comida + Cena apiladas.
+  const b = bucketDays(d.porDia);
+  $('legendDia').innerHTML = `<span><i style="background:${VIZ.s1}"></i>Comida</span><span><i style="background:${VIZ.s2}"></i>Cena</span>`;
+  draw('chDia', {
+    type: 'bar',
+    data: {
+      labels: b.map(x => x.label),
+      datasets: [
+        { label: 'Comida', data: b.map(x => x.comida), ...barStyle(VIZ.s1), borderRadius: 0, stack: 's' },
+        { label: 'Cena', data: b.map(x => x.cena), ...barStyle(VIZ.s2), borderRadius: { topLeft: 4, topRight: 4 }, borderSkipped: false, stack: 's' },
+      ],
+    },
+    options: baseOptions({
+      scales: { ...baseOptions().scales, x: { ...baseOptions().scales.x, stacked: true }, y: { ...baseOptions().scales.y, stacked: true } },
+      plugins: {
+        ...baseOptions().plugins,
+        tooltip: {
+          ...baseOptions().plugins.tooltip,
+          callbacks: {
+            ...baseOptions().plugins.tooltip.callbacks,
+            title: items => b[items[0].dataIndex].title,
+            footer: items => `Total: ${fmt(items.reduce((s, i) => s + i.parsed.y, 0))}`,
+          },
+        },
+      },
+    }),
+  });
+
+  // 2) Comensales por hora de la reserva.
+  draw('chHora', {
+    type: 'bar',
+    data: { labels: d.porHora.map(h => `${h.hora}:00`), datasets: [{ label: 'Comensales', data: d.porHora.map(h => h.personas), ...barStyle(VIZ.s1) }] },
+    options: baseOptions(),
+  });
+
+  // 3) Reservas por canal (barras horizontales, con el % en la etiqueta).
+  const totalCanal = d.porCanal.reduce((s, c) => s + c.reservas, 0) || 1;
+  draw('chCanal', {
+    type: 'bar',
+    data: {
+      labels: d.porCanal.map(c => `${c.canal} · ${Math.round(100 * c.reservas / totalCanal)} %`),
+      datasets: [{ label: 'Reservas', data: d.porCanal.map(c => c.reservas), ...barStyle(VIZ.s1) }],
+    },
+    options: baseOptions({
+      indexAxis: 'y',
+      scales: {
+        x: { ...baseOptions().scales.y, grid: { color: VIZ.grid } },
+        y: { grid: { display: false }, border: { color: VIZ.grid }, ticks: { color: VIZ.text, font: { size: 12 } } },
+      },
+    }),
+  });
+
+  // 4) Todos los locales → ranking de comensales por local; un local → estados de las reservas.
+  if (d.all) {
+    const top = d.porLocal.slice(0, 15);
+    $('cap4').textContent = d.porLocal.length > 15
+      ? `Comensales por local (15 primeros de ${d.porLocal.length})` : 'Comensales por local';
+    $('box4').style.height = `${Math.max(160, top.length * 30 + 40)}px`;
+    draw('ch4', {
+      type: 'bar',
+      data: { labels: top.map(l => l.local), datasets: [{ label: 'Comensales', data: top.map(l => l.personas), ...barStyle(VIZ.s1) }] },
+      options: baseOptions({
+        indexAxis: 'y',
+        scales: {
+          x: { ...baseOptions().scales.y, grid: { color: VIZ.grid } },
+          y: { grid: { display: false }, border: { color: VIZ.grid }, ticks: { color: VIZ.text, font: { size: 12 }, autoSkip: false } },
+        },
+        plugins: {
+          ...baseOptions().plugins,
+          tooltip: {
+            ...baseOptions().plugins.tooltip,
+            callbacks: {
+              label: c => ` Comensales: ${fmt(c.parsed.x)}`,
+              afterLabel: c => [` Reservas: ${fmt(top[c.dataIndex].reservas)}`,
+                ` No show: ${top[c.dataIndex].pct_no_show == null ? '—' : fmt(top[c.dataIndex].pct_no_show) + ' %'}`],
+            },
+          },
+        },
+      }),
+    });
+  } else {
+    $('cap4').textContent = 'Estado de las reservas';
+    $('box4').style.height = `${Math.max(160, d.porEstado.length * 30 + 40)}px`;
+    draw('ch4', {
+      type: 'bar',
+      data: { labels: d.porEstado.map(e => e.estado), datasets: [{ label: 'Reservas', data: d.porEstado.map(e => e.reservas), ...barStyle(VIZ.s1) }] },
+      options: baseOptions({
+        indexAxis: 'y',
+        scales: {
+          x: { ...baseOptions().scales.y, grid: { color: VIZ.grid } },
+          y: { grid: { display: false }, border: { color: VIZ.grid }, ticks: { color: VIZ.text, font: { size: 12 } } },
+        },
+      }),
+    });
+  }
+}
+
+// Carga el panel con los filtros actuales (también al cambiar cualquier filtro).
+let dashSeq = 0;
 async function calculate() {
-  $('sumPax').textContent = '…';
-  $('sumRes').textContent = '…';
+  const seq = ++dashSeq;
+  const sel = $('fLocal');
+  $('dashScope').textContent = `${sel.options[sel.selectedIndex]?.text.replace(/ \(\d+\)$/, '') || ''} · ${$('fFrom').value} a ${$('fTo').value}`;
   try {
-    const data = await fetchReport('resumen_grupo');
-    const col = name => data.columns.indexOf(name);
-    const sum = idx => data.rows.reduce((s, r) => s + (Number(r[idx]) || 0), 0);
-    $('sumPax').textContent = sum(col('Personas')).toLocaleString('es-ES');
-    $('sumRes').textContent = sum(col('Reservas válidas')).toLocaleString('es-ES');
+    const res = await fetch(`/api/reports/dashboard?${new URLSearchParams(baseParams())}`);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'No se pudo cargar el resumen.');
+    if (seq !== dashSeq) return; // llegó otra petición más nueva mientras tanto
+    renderKpis(d.kpis);
+    const vacio = d.kpis.total === 0;
+    $('dashEmpty').textContent = 'No hay reservas en este periodo con estos filtros.';
+    $('dashEmpty').hidden = !vacio;
+    document.querySelector('.chart-grid').hidden = vacio;
+    if (!vacio) renderCharts(d);
   } catch (err) {
-    $('sumPax').textContent = '—';
-    $('sumRes').textContent = '—';
-    $('allStatus').textContent = err.message;
+    $('kpis').innerHTML = '';
+    $('dashEmpty').textContent = err.message;
+    $('dashEmpty').hidden = false;
   }
 }
 
