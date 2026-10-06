@@ -125,12 +125,24 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 // (incluso para una fecha que ya tiene reservas) nunca toca las mesas ya
 // referenciadas por esas reservas: reservation_tables sigue apuntando al
 // table_id original, que no se borra al cambiar de plano.
-async function resolveFloorPlanId(restaurantId, dateStr) {
+//
+// Además, cada turno del horario semanal puede tener su propio plano (shifts.floor_plan_id),
+// igual que en Cover, donde p. ej. Balboa usa "Máximos" en las comidas entre semana y
+// "Mínimos" en las cenas. Orden de prioridad:
+//   1) plano asignado a esa fecha en la agenda (lo fija el personal a mano),
+//   2) plano del turno en que cae la hora (si se conoce la hora: `minutes`),
+//   3) plano por defecto del local.
+async function resolveFloorPlanId(restaurantId, dateStr, minutes = null) {
   const { rows: scheduledRows } = await db.query(
     `SELECT floor_plan_id FROM floor_plan_schedule WHERE restaurant_id = $1 AND date = $2`,
     [restaurantId, dateStr]
   );
   if (scheduledRows.length) return scheduledRows[0].floor_plan_id;
+  if (minutes != null) {
+    const shift = (await getShiftsForDate(restaurantId, dateStr))
+      .find(s => s.floor_plan_id && minutes >= toMinutes(s.start_time) && minutes <= toMinutes(s.end_time));
+    if (shift) return shift.floor_plan_id;
+  }
   const { rows: defRows } = await db.query(
     `SELECT id FROM floor_plans WHERE restaurant_id = $1 AND is_default = 1 LIMIT 1`,
     [restaurantId]
@@ -138,8 +150,8 @@ async function resolveFloorPlanId(restaurantId, dateStr) {
   return defRows.length ? defRows[0].id : null;
 }
 
-async function getActiveTables(restaurantId, dateStr) {
-  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr);
+async function getActiveTables(restaurantId, dateStr, minutes = null) {
+  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr, minutes);
   if (!floorPlanId) return [];
   const { rows } = await db.query(
     `SELECT * FROM tables WHERE restaurant_id = $1 AND floor_plan_id = $2 AND active = 1`,
@@ -150,8 +162,8 @@ async function getActiveTables(restaurantId, dateStr) {
 
 // Combinaciones de mesas definidas explícitamente para el plano de esa fecha
 // (2 o más mesas, no solo parejas — p. ej. M3+M4+M5 para un grupo grande).
-async function getCombinationsForDate(restaurantId, dateStr) {
-  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr);
+async function getCombinationsForDate(restaurantId, dateStr, minutes = null) {
+  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr, minutes);
   if (!floorPlanId) return [];
   const { rows: combos } = await db.query(
     `SELECT * FROM table_combinations WHERE restaurant_id = $1 AND floor_plan_id = $2 AND active = 1`,
@@ -185,7 +197,7 @@ async function getCombinationsForDate(restaurantId, dateStr) {
 // counts as belonging to a zone if every one of its member tables does; none of the real
 // combos span zones today, but a mixed one shouldn't silently match a zone filter.
 async function findAvailableTable(restaurantId, dateStr, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId, zoneId) {
-  const allTables = await getActiveTables(restaurantId, dateStr);
+  const allTables = await getActiveTables(restaurantId, dateStr, startMinutes);
   const reqEnd = startMinutes + durationMinutes;
 
   async function isFree(table) {
@@ -193,13 +205,17 @@ async function findAvailableTable(restaurantId, dateStr, startMinutes, durationM
     return !busy.some(b => overlaps(startMinutes, reqEnd, b.start, b.end));
   }
 
+  // La zona se compara por nombre (sin mayúsculas), no por id: cada plano tiene sus
+  // propias zonas, y el cliente elige la zona antes de saber qué plano tocará a esa hora.
+  const inZone = await zoneMatcher(zoneId);
+
   // 1) Best single-table fit (smallest table whose own capacity_min<=party<=capacity_max).
   // This filter only makes sense per-table, so it's applied here — NOT on the list used
   // for combos below, otherwise a party that only fits when combining smaller tables
   // (e.g. 8 people needing two 4-tops) would wrongly get excluded before the combo search.
   const singleCandidates = allTables
     .filter(t => partySize <= t.capacity_max)
-    .filter(t => !zoneId || t.zone_id === zoneId)
+    .filter(t => inZone(t))
     .sort((a, b) => a.capacity_max - b.capacity_max);
   for (const t of singleCandidates) {
     if (partySize >= t.capacity_min && await isFree(t)) return [t];
@@ -210,8 +226,8 @@ async function findAvailableTable(restaurantId, dateStr, startMinutes, durationM
   // capacity_min/capacity_max: aforo fijado a mano (como en Cover) — no siempre coincide
   // con la suma de las mesas (dos mesas de 2 pueden dar servicio a 6 por las sillas de
   // esquina que se añaden al juntarlas). Si no se fijó, se usa la suma de siempre.
-  const combos = (await getCombinationsForDate(restaurantId, dateStr))
-    .filter(c => !zoneId || c.tables.every(t => t.zone_id === zoneId))
+  const combos = (await getCombinationsForDate(restaurantId, dateStr, startMinutes))
+    .filter(c => c.tables.every(t => inZone(t)))
     .map(c => ({
       ...c,
       combinedMin: c.capacity_min != null ? c.capacity_min : 1,
@@ -249,7 +265,7 @@ function findCapForMinute(caps, minute) {
 }
 
 // Comensales ya reservados (no cancelados/no-show) cuya hora de inicio cae dentro
-// de la misma franja [bandStart, bandEnd) que la reserva candidata.
+// de [bandStart, bandEnd) — aquí, el intervalo de reserva de la candidata.
 async function coversBookedInBand(restaurantId, dateStr, bandStart, bandEnd, excludeReservationId) {
   const { rows } = await db.query(
     `SELECT time, party_size, id FROM reservations
@@ -262,17 +278,21 @@ async function coversBookedInBand(restaurantId, dateStr, bandStart, bandEnd, exc
     .reduce((sum, r) => sum + r.party_size, 0);
 }
 
-// true si añadir `partySize` a las `startMinutes` respeta el cupo de aforo de esa franja.
-// Si no hay cupo configurado para ese día/franja, no se restringe por este criterio
+// true si añadir `partySize` a las `startMinutes` respeta el cupo de aforo.
+// Igual que "Máximo de personas por intervalo" de Cover: el tramo (p. ej. 13:00-14:00 → 25)
+// fija cuántas personas pueden ENTRAR EN CADA INTERVALO de reserva de ese tramo (cada
+// franja de slot_interval_minutes: 13:00, 13:15, 13:30...), no el total de todo el tramo.
+// Si no hay cupo configurado para ese día/hora, no se restringe por este criterio
 // (solo aplica la disponibilidad de mesa).
 async function hasCapacityRoom(restaurantId, dateStr, startMinutes, partySize, excludeReservationId) {
   const caps = await getCapacityCapsForDay(restaurantId, dateStr);
   if (!caps.length) return true;
   const cap = findCapForMinute(caps, startMinutes);
   if (!cap) return true;
-  const bandStart = toMinutes(cap.start_time);
-  const bandEnd = toMinutes(cap.end_time);
-  const booked = await coversBookedInBand(restaurantId, dateStr, bandStart, bandEnd, excludeReservationId);
+  const { rows } = await db.query('SELECT slot_interval_minutes FROM restaurants WHERE id = $1', [restaurantId]);
+  const interval = (rows[0] && rows[0].slot_interval_minutes) || 15;
+  const slotStart = startMinutes - (startMinutes % interval);
+  const booked = await coversBookedInBand(restaurantId, dateStr, slotStart, slotStart + interval, excludeReservationId);
   return booked + partySize <= cap.max_covers;
 }
 
@@ -291,14 +311,45 @@ async function getAvailability(restaurant, dateStr, partySize, zoneId) {
   return results;
 }
 
-async function getZonesForDate(restaurantId, dateStr) {
-  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr);
-  if (!floorPlanId) return [];
+// Devuelve una función (mesa) => ¿está en la zona elegida? — por nombre de zona.
+async function zoneMatcher(zoneId) {
+  if (!zoneId) return () => true;
+  const { rows } = await db.query('SELECT name FROM zones WHERE id = $1', [zoneId]);
+  if (!rows.length) return () => true;
+  const wanted = rows[0].name.trim().toLowerCase();
+  const { rows: same } = await db.query('SELECT id FROM zones WHERE lower(trim(name)) = $1', [wanted]);
+  const ids = new Set(same.map(z => z.id));
+  return t => ids.has(t.zone_id);
+}
+
+// Zonas del plano que aplica. Con hora: las del plano de ese turno. Sin hora (selector de
+// zona del cliente, antes de elegir hora): las de todos los planos que se usan ese día,
+// sin repetir nombres (SALA y Sala cuentan como la misma).
+async function getZonesForDate(restaurantId, dateStr, minutes = null) {
+  let planIds;
+  if (minutes != null) {
+    planIds = [await resolveFloorPlanId(restaurantId, dateStr, minutes)];
+  } else {
+    const shifts = await getShiftsForDate(restaurantId, dateStr);
+    const ids = [];
+    for (const m of [null, ...shifts.map(s => toMinutes(s.start_time))]) {
+      ids.push(await resolveFloorPlanId(restaurantId, dateStr, m));
+    }
+    planIds = [...new Set(ids)];
+  }
+  planIds = planIds.filter(Boolean);
+  if (!planIds.length) return [];
   const { rows } = await db.query(
-    `SELECT * FROM zones WHERE restaurant_id = $1 AND floor_plan_id = $2 ORDER BY sort_order, name`,
-    [restaurantId, floorPlanId]
+    `SELECT * FROM zones WHERE restaurant_id = $1 AND floor_plan_id = ANY($2::int[]) ORDER BY sort_order, name`,
+    [restaurantId, planIds]
   );
-  return rows;
+  const seen = new Set();
+  return rows.filter(z => {
+    const key = z.name.trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // Public: the real, tappable floor plan for a specific date/time/party — every table's
@@ -306,11 +357,11 @@ async function getZonesForDate(restaurantId, dateStr) {
 // plus which currently-viable combinations each table belongs to. This is what lets the
 // customer pick their own table instead of the system silently auto-assigning one.
 async function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
-  const zones = await getZonesForDate(restaurantId, dateStr);
+  const zones = await getZonesForDate(restaurantId, dateStr, startMinutes);
   const zoneName = {};
   zones.forEach(z => { zoneName[z.id] = z.name; });
 
-  const tables = await getActiveTables(restaurantId, dateStr);
+  const tables = await getActiveTables(restaurantId, dateStr, startMinutes);
   const reqEnd = startMinutes + durationMinutes;
 
   async function isFree(table) {
@@ -329,7 +380,7 @@ async function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes,
     tableStatus[t.id] = !free ? 'occupied' : (partySize > t.capacity_max ? 'toosmall' : 'available');
   }
 
-  const rawCombos = await getCombinationsForDate(restaurantId, dateStr);
+  const rawCombos = await getCombinationsForDate(restaurantId, dateStr, startMinutes);
   const combos = rawCombos.map(c => {
     const combinedMax = c.tables.reduce((sum, t) => sum + t.capacity_max, 0);
     const allFree = c.tables.every(t => tableFree[t.id]);
@@ -377,7 +428,7 @@ async function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes,
 // the customer to pick again rather than silently substituting a different table).
 async function validateChosenTables(restaurantId, dateStr, tableIds, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
   if (!Array.isArray(tableIds) || !tableIds.length) return null;
-  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr);
+  const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr, startMinutes);
   if (!floorPlanId) return null;
 
   const placeholders = tableIds.map((_, i) => `$${i + 3}`).join(',');

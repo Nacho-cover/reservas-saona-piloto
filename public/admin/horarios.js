@@ -9,7 +9,7 @@ const DIAS = [
   { dow: 0, label: 'domingo' },
 ];
 
-const state = { shifts: [], overrides: [], specificDates: [] };
+const state = { shifts: [], overrides: [], specificDates: [], plans: [] };
 
 function populateHourSelect(sel) {
   sel.innerHTML = '';
@@ -33,12 +33,15 @@ function todayISO() {
 }
 
 async function loadAll() {
-  const [shiftsRes, overridesRes] = await Promise.all([
+  const [shiftsRes, overridesRes, plansRes] = await Promise.all([
     fetch(`/api/shifts?restaurantId=${RESTAURANT_ID}`),
     fetch(`/api/shift-date-overrides?restaurantId=${RESTAURANT_ID}&from=${todayISO()}&to=${addDays(todayISO(), 60)}`),
+    fetch(`/api/floor-plans?restaurantId=${RESTAURANT_ID}`),
   ]);
   state.shifts = await shiftsRes.json();
   state.overrides = await overridesRes.json();
+  state.plans = plansRes.ok ? await plansRes.json() : [];
+  renderPlanSelect();
   renderWeekGrid();
   renderShiftNameSelect();
   renderOverridesList();
@@ -63,7 +66,7 @@ function renderWeekGrid() {
     const shiftsThisDay = state.shifts.filter(s => s.day_of_week === dow).sort((a, b) => a.start_time.localeCompare(b.start_time));
     col.innerHTML = `<div class="wd-label">${label}</div>` + (
       shiftsThisDay.length
-        ? shiftsThisDay.map(s => `<div class="wd-shift" data-id="${s.id}">${escapeHtml(s.name)}<br>${s.start_time}–${s.end_time}</div>`).join('')
+        ? shiftsThisDay.map(s => `<div class="wd-shift" data-id="${s.id}">${escapeHtml(s.name)}<br>${s.start_time}–${s.end_time}${s.floor_plan_name ? `<div class="wd-plan">${escapeHtml(s.floor_plan_name)}</div>` : ''}</div>`).join('')
         : '<div class="wd-empty">Cerrado</div>'
     );
     col.querySelectorAll('.wd-shift').forEach(el => {
@@ -86,11 +89,22 @@ function prefillForm(shift) {
   $('shiftName').value = shift.name;
   $('shiftStart').value = shift.start_time;
   $('shiftEnd').value = shift.end_time;
+  $('shiftPlan').value = shift.floor_plan_id ? String(shift.floor_plan_id) : '';
   document.querySelector('input[name="scope"][value="weekday"]').checked = true;
   state.selectedWeekday = shift.day_of_week;
   updateWeekdayLabel();
   renderScopeFields();
   window.scrollTo({ top: document.querySelector('#shiftForm').offsetTop - 20, behavior: 'smooth' });
+}
+
+// --- Selector de plano del turno (cada turno puede usar su propio plano) ---------
+function renderPlanSelect() {
+  const sel = $('shiftPlan');
+  const current = sel.value;
+  const def = state.plans.find(p => p.is_default);
+  sel.innerHTML = `<option value="">Plano por defecto${def ? ` (${escapeHtml(def.name)})` : ''}</option>` +
+    state.plans.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  if ([...sel.options].some(o => o.value === current)) sel.value = current;
 }
 
 // --- Selector de turno (con opción "nuevo turno") -----------------------------
@@ -121,6 +135,9 @@ function updateWeekdayLabel() {
 function renderScopeFields() {
   const scope = document.querySelector('input[name="scope"]:checked').value;
   const box = $('scopeFields');
+  // El plano se guarda en el horario semanal; las excepciones por fecha solo cambian horas
+  // (para cambiar el plano de un día concreto está la agenda de Configuración de sala).
+  $('planField').classList.toggle('hidden', !['weekday', 'everyday'].includes(scope));
   if (scope === 'day') {
     box.innerHTML = `<label class="field"><span>Fecha</span><input type="date" id="scopeDate" value="${todayISO()}"></label>`;
   } else if (scope === 'weekday') {
@@ -217,7 +234,8 @@ async function applyHours(e) {
       for (const dayOfWeek of target.weekdays) {
         const res = await fetch('/api/shifts', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ restaurantId: RESTAURANT_ID, name, dayOfWeek, startTime, endTime }),
+          body: JSON.stringify({ restaurantId: RESTAURANT_ID, name, dayOfWeek, startTime, endTime,
+            floorPlanId: $('shiftPlan').value ? Number($('shiftPlan').value) : null }),
         });
         if (!res.ok) throw new Error((await res.json()).error || 'No se pudo guardar el turno');
       }

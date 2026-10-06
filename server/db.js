@@ -217,6 +217,9 @@ async function initDb() {
     -- Momento de la cancelación (misma zona horaria que created_at), para el informe
     -- "canceladas dentro de las X horas antes de su reserva".
     ALTER TABLE reservations ADD COLUMN IF NOT EXISTS cancelled_at TEXT;
+    -- Plano de sala de cada turno (p. ej. Comida entre semana = "Máximos", Cena = "Mínimos").
+    -- NULL = el plano por defecto del local. La agenda por fecha sigue teniendo prioridad.
+    ALTER TABLE shifts ADD COLUMN IF NOT EXISTS floor_plan_id INTEGER REFERENCES floor_plans(id);
 
     -- Claves de la API de integración (/api/v1). Solo se guarda el sha256 de la
     -- clave; key_prefix (primeros caracteres) sirve para reconocerla en el panel.

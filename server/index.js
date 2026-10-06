@@ -372,7 +372,10 @@ app.patch('/api/reservations/:id/table', adminAuth.requireAdminAuth, async (req,
 // semana. "Todos los días" en el panel simplemente llama a esta ruta 7 veces (una
 // por day_of_week), no es un concepto aparte en la base de datos.
 app.get('/api/shifts', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
-  const { rows } = await db.query('SELECT * FROM shifts WHERE restaurant_id = $1 ORDER BY day_of_week, start_time', [req.restaurant.id]);
+  const { rows } = await db.query(`
+    SELECT s.*, fp.name AS floor_plan_name FROM shifts s
+    LEFT JOIN floor_plans fp ON fp.id = s.floor_plan_id
+    WHERE s.restaurant_id = $1 ORDER BY s.day_of_week, s.start_time`, [req.restaurant.id]);
   res.json(rows);
 });
 
@@ -383,6 +386,14 @@ app.post('/api/shifts', adminAuth.requireAdminAuth, requireRestaurant, async (re
   if (!name || dayOfWeek == null || !startTime || !endTime) {
     return res.status(400).json({ error: 'name, dayOfWeek, startTime y endTime son obligatorios' });
   }
+  // floorPlanId: plano de sala de este turno ese día de la semana. Si no viene en el
+  // cuerpo, se conserva el que tuviera; null lo quita (vuelve al plano por defecto).
+  const hasPlan = Object.prototype.hasOwnProperty.call(req.body, 'floorPlanId');
+  const floorPlanId = req.body.floorPlanId ? Number(req.body.floorPlanId) : null;
+  if (floorPlanId) {
+    const { rows: planRows } = await db.query('SELECT 1 FROM floor_plans WHERE id = $1 AND restaurant_id = $2', [floorPlanId, req.restaurant.id]);
+    if (!planRows.length) return res.status(400).json({ error: 'Ese plano no existe para este local' });
+  }
   const { rows: existing } = await db.query(
     'SELECT id FROM shifts WHERE restaurant_id = $1 AND name = $2 AND day_of_week = $3',
     [req.restaurant.id, name, dayOfWeek]
@@ -390,14 +401,16 @@ app.post('/api/shifts', adminAuth.requireAdminAuth, requireRestaurant, async (re
   let row;
   if (existing.length) {
     const { rows } = await db.query(
-      'UPDATE shifts SET start_time = $1, end_time = $2, last_seating_offset_minutes = $3 WHERE id = $4 RETURNING *',
-      [startTime, endTime, lastSeatingOffsetMinutes || 0, existing[0].id]
+      `UPDATE shifts SET start_time = $1, end_time = $2, last_seating_offset_minutes = COALESCE($3, last_seating_offset_minutes),
+         floor_plan_id = CASE WHEN $5::boolean THEN $6::int ELSE floor_plan_id END
+       WHERE id = $4 RETURNING *`,
+      [startTime, endTime, lastSeatingOffsetMinutes ?? null, existing[0].id, hasPlan, floorPlanId]
     );
     row = rows[0];
   } else {
     const { rows } = await db.query(
-      'INSERT INTO shifts (restaurant_id, name, day_of_week, start_time, end_time, last_seating_offset_minutes) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [req.restaurant.id, name, dayOfWeek, startTime, endTime, lastSeatingOffsetMinutes || 0]
+      'INSERT INTO shifts (restaurant_id, name, day_of_week, start_time, end_time, last_seating_offset_minutes, floor_plan_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [req.restaurant.id, name, dayOfWeek, startTime, endTime, lastSeatingOffsetMinutes || 0, floorPlanId]
     );
     row = rows[0];
   }
@@ -632,8 +645,15 @@ app.delete('/api/zones/:id', adminAuth.requireAdminAuth, async (req, res) => {
 
 // --- Mesas ---------------------------------------------------------------------
 app.get('/api/tables', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
-  const { floorPlanId, date } = req.query;
-  const planId = floorPlanId || await availability.resolveFloorPlanId(req.restaurant.id, date || dayjs().format('YYYY-MM-DD'));
+  const { floorPlanId, date, shift } = req.query;
+  const day = date || dayjs().format('YYYY-MM-DD');
+  // Con ?shift=Comida|Cena se devuelve el plano de ese turno (cada turno puede tener el suyo).
+  let minutes = null;
+  if (shift) {
+    const s = (await availability.getShiftsForDate(req.restaurant.id, day)).find(x => x.name === shift);
+    if (s) minutes = availability.toMinutes(s.start_time);
+  }
+  const planId = floorPlanId || await availability.resolveFloorPlanId(req.restaurant.id, day, minutes);
   const { rows } = await db.query(`
     SELECT t.*, z.name AS "zoneName" FROM tables t
     LEFT JOIN zones z ON z.id = t.zone_id

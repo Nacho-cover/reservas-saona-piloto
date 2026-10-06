@@ -20,3 +20,4 @@
 .override-row .ov-date { font-weight: 600; min-width: 100px; }
 .override-row .ov-meta { flex: 1; color: var(--text-muted); }
 .override-row button { border: none; background: none; cursor: pointer; color: var(--danger); font-size: 12px; }
+.week-day .wd-plan { font-size: 11px; opacity: 0.8; margin-top: 3px; }

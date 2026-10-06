@@ -387,13 +387,12 @@ const REPORTS = [
   },
   {
     id: 'ocupacion', sheet: 'Ocupación', group: 'Reservas', title: 'Disponibilidades (ocupación por turno)',
-    description: 'Comensales reservados frente al aforo del plano de ese día y al cupo configurado del turno.',
+    description: 'Comensales reservados en cada turno frente al aforo del plano que usa ese turno.',
     params: [],
     async run(ctx) {
       const { sql, params } = baseCte({ ...ctx, dateType: 'reserva' });
       // Aforo: suma de comensales máximos de las mesas activas del plano que aplica
-      // ese día (agenda de planos o, si no hay, el plano por defecto). Cupo: suma de
-      // los tramos de capacity_caps de ese día de la semana que empiezan dentro del turno.
+      // a ese turno (agenda de planos, plano del turno o, si no hay, el plano por defecto).
       return run(`${sql},
         turnos AS (
           SELECT b.restaurant_id, b.local, b.date, b.turno,
@@ -403,23 +402,18 @@ const REPORTS = [
         SELECT t.local AS "Local", t.date AS "Fecha", t.turno AS "Turno",
                t.reservas AS "Reservas", t.personas AS "Personas",
                aforo.total AS "Aforo del plano",
-               ROUND(100.0 * t.personas / NULLIF(aforo.total, 0), 1) AS "% sobre aforo",
-               cupo.total AS "Cupo del turno",
-               cupo.total - t.personas AS "Plazas libres según cupo"
+               ROUND(100.0 * t.personas / NULLIF(aforo.total, 0), 1) AS "% sobre aforo"
           FROM turnos t
           LEFT JOIN LATERAL (
             SELECT SUM(tb.capacity_max)::int AS total FROM tables tb
              WHERE tb.active = 1 AND tb.floor_plan_id = COALESCE(
                (SELECT fps.floor_plan_id FROM floor_plan_schedule fps
                  WHERE fps.restaurant_id = t.restaurant_id AND fps.date = t.date),
+               (SELECT s.floor_plan_id FROM shifts s
+                 WHERE s.restaurant_id = t.restaurant_id AND s.name = t.turno
+                   AND s.day_of_week = EXTRACT(DOW FROM t.date::date) LIMIT 1),
                (SELECT fp.id FROM floor_plans fp WHERE fp.restaurant_id = t.restaurant_id AND fp.is_default = 1 LIMIT 1))
           ) aforo ON true
-          LEFT JOIN LATERAL (
-            SELECT SUM(cc.max_covers)::int AS total FROM capacity_caps cc
-             JOIN shifts s ON s.restaurant_id = cc.restaurant_id AND s.day_of_week = cc.day_of_week AND s.name = t.turno
-             WHERE cc.restaurant_id = t.restaurant_id AND cc.day_of_week = EXTRACT(DOW FROM t.date::date)
-               AND cc.start_time >= s.start_time AND cc.start_time <= s.end_time
-          ) cupo ON true
          ORDER BY t.local, t.date, t.turno DESC`, params);
     },
   },

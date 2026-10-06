@@ -45,7 +45,7 @@ async function loadRestaurant() {
 async function loadReservations() {
   const [resRes, tablesRes, closuresRes] = await Promise.all([
     fetch(`/api/reservations?restaurantId=${RESTAURANT_ID}&date=${state.date}`),
-    fetch(`/api/tables?restaurantId=${RESTAURANT_ID}&date=${state.date}`),
+    fetch(`/api/tables?restaurantId=${RESTAURANT_ID}&date=${state.date}&shift=${encodeURIComponent(state.shift)}`),
     fetch(`/api/closures?restaurantId=${RESTAURANT_ID}&date=${state.date}`),
   ]);
   state.reservations = await resRes.json();
@@ -486,7 +486,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (!btn) return;
     state.shift = btn.dataset.shift;
     $('fpShiftToggle').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
-    renderFloorPlanView();
+    // Cada turno puede usar un plano distinto (p. ej. Máximos en comida, Mínimos en cena).
+    loadReservations();
   });
 
   $('openNewBtn').addEventListener('click', openModal);
