@@ -3,18 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>¿Qué tal tu visita?</title>
+<title>¿Qué tal tu visita? · Saona</title>
+<meta name="theme-color" content="#152b4e">
+<link rel="icon" href="/icons/icon-192.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Playfair+Display:ital,wght@0,500;1,500&display=swap">
 <style>
   :root {
-    --brand: #1f4d3a; --brand-dark: #163627; --brand-light: #e8f0ea;
-    --bg: #f7f6f3; --surface: #ffffff; --text: #1c1c1c; --text-muted: #6b6b6b;
-    --border: #e2e0da; --danger: #b3261e;
+    --brand: #152b4e; --brand-dark: #0e1f3a; --brand-light: #e6ecf2; --steel: #7a99ac;
+    --cta: #d3011d; --cta-dark: #a90017; --sand: #dbd9d1;
+    --bg: #f4f2ec; --surface: #ffffff; --text: #384049; --text-muted: #6b7480;
+    --border: #e1ded5; --danger: #b3261e;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
-  .wrap { max-width: 440px; margin: 0 auto; min-height: 100vh; padding: 24px 16px; }
+  body { margin: 0; font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+  .topbar { background: var(--brand); padding: 18px 20px 30px; padding-top: max(18px, env(safe-area-inset-top)); text-align: center; }
+  .topbar img { height: 20px; width: auto; }
+  .wrap { max-width: 440px; margin: -16px auto 0; min-height: 100vh; padding: 0 16px 24px; }
   .card { background: var(--surface); border-radius: 14px; padding: 24px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-  h1 { font-size: 20px; margin: 0 0 4px; color: var(--brand-dark); }
+  h1 { font-family: "Playfair Display", Georgia, serif; font-style: italic; font-weight: 500; font-size: 26px; line-height: 1.2; margin: 0 0 6px; color: var(--brand); }
   .sub { color: var(--text-muted); font-size: 14px; margin: 0 0 22px; }
   .field { margin-bottom: 20px; }
   .field label { display: block; font-weight: 600; font-size: 14.5px; margin-bottom: 8px; }
@@ -28,15 +36,17 @@
     width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
     font-family: inherit; font-size: 14.5px; resize: vertical; min-height: 70px;
   }
-  .btn { width: 100%; padding: 14px; border: none; border-radius: 8px; background: var(--brand); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; }
-  .btn:disabled { background: #a9b8b0; cursor: not-allowed; }
+  .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; background: var(--cta); color: #fff; font-family: inherit; font-weight: 700; font-size: 15px; cursor: pointer; }
+  .btn:hover { background: var(--cta-dark); }
+  .btn:disabled { background: #c9ced6; cursor: not-allowed; }
   .error { color: var(--danger); font-size: 13.5px; min-height: 18px; margin-top: 10px; }
   .center { text-align: center; padding: 30px 10px; }
-  .center .icon { font-size: 40px; margin-bottom: 10px; }
+  .center .icon { font-size: 40px; margin-bottom: 10px; color: var(--brand); }
   .hidden { display: none; }
 </style>
 </head>
 <body>
+<header class="topbar"><img src="/icons/saona-logo.svg" alt="Saona" width="107" height="20"></header>
 <div class="wrap">
   <div class="card">
     <div id="loadingView">Cargando…</div>

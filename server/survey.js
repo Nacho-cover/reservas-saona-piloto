@@ -26,19 +26,20 @@ async function verifySurveyToken(reservationId, token) {
 function surveyEmailHtml({ restaurant, reservation, surveyUrl }) {
   const fecha = formatFechaLarga(reservation.date);
   return `<!doctype html>
-<html lang="es"><body style="margin:0;padding:0;background:#f7f6f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<html lang="es"><body style="margin:0;padding:0;background:#f4f2ec;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
-    <div style="background:#1f4d3a;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px;">
-      <div style="font-size:18px;font-weight:700;">${restaurant.name}</div>
+    <div style="background:#152b4e;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px;">
+      <div style="font-size:12px;letter-spacing:4px;font-weight:700;color:#7a99ac;margin-bottom:8px;">SAONA</div>
+      <div style="font-family:Georgia,serif;font-style:italic;font-size:22px;">${restaurant.name}</div>
       <div style="font-size:13px;opacity:0.85;">¿Qué tal tu visita?</div>
     </div>
-    <div style="background:#fff;border-radius:0 0 12px 12px;padding:24px;border:1px solid #e2e0da;border-top:none;">
-      <p style="margin:0 0 16px;font-size:15px;color:#1c1c1c;">Hola ${reservation.customer_name},</p>
-      <p style="margin:0 0 20px;font-size:15px;color:#1c1c1c;">
+    <div style="background:#fff;border-radius:0 0 12px 12px;padding:24px;border:1px solid #e1ded5;border-top:none;">
+      <p style="margin:0 0 16px;font-size:15px;color:#384049;">Hola ${reservation.customer_name},</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#384049;">
         Gracias por venir el ${fecha}. Nos encantaría saber qué tal lo pasaste — solo
         te llevará un minuto y nos ayuda muchísimo a mejorar.
       </p>
-      <a href="${surveyUrl}" style="display:block;text-align:center;background:#1f4d3a;color:#fff;
+      <a href="${surveyUrl}" style="display:block;text-align:center;background:#d3011d;color:#fff;
         text-decoration:none;padding:14px 20px;border-radius:8px;font-weight:700;font-size:15px;">
         Valorar mi visita
       </a>

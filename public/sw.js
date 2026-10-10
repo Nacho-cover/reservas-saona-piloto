@@ -1,5 +1,5 @@
-const CACHE = 'reservas-v3';
-const ASSETS = ['/', '/style.css', '/app.js', '/manifest.json'];
+const CACHE = 'reservas-v4';
+const ASSETS = ['/', '/style.css', '/app.js', '/manifest.json', '/icons/saona-logo.svg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));

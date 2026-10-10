@@ -3,32 +3,35 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Reservas – Saona Piloto</title>
-<meta name="theme-color" content="#1f4d3a">
+<title>Reserva tu mesa · Saona</title>
+<meta name="description" content="Reserva tu mesa en Saona. Amor al Mediterráneo.">
+<meta name="theme-color" content="#152b4e">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icons/icon-192.svg">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Playfair+Display:ital,wght@0,500;1,400;1,500&display=swap">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="app">
   <header class="topbar">
     <div class="topbar-row">
-      <div class="brand">
-        <span class="brand-mark">S</span>
-        <div>
-          <div class="brand-name" id="restaurantName">Cargando…</div>
-          <div class="brand-sub">Reserva tu mesa</div>
-        </div>
-      </div>
+      <img class="logo" src="/icons/saona-logo.svg" alt="Saona" width="112" height="21">
       <div id="restaurantBar"></div>
+    </div>
+    <div class="hero">
+      <p class="hero-kicker">Reserva tu mesa en</p>
+      <div class="brand-name" id="restaurantName">Cargando…</div>
+      <p class="hero-tag">Amor al Mediterráneo</p>
     </div>
   </header>
 
   <main>
     <!-- STEP 1: search -->
     <section id="step-search" class="card step">
-      <h1>Reserva tu mesa</h1>
+      <h1>¿Cuándo nos visitas?</h1>
       <div class="field-row">
         <label class="field">
           <span>Fecha</span>
@@ -97,7 +100,8 @@
   </main>
 
   <footer class="footer">
-    <span id="restaurantAddress"></span> · <span id="restaurantPhone"></span>
+    <img class="footer-logo" src="/icons/saona-logo.svg" alt="" width="72" height="14">
+    <div><span id="restaurantAddress"></span><span class="sep"> · </span><span id="restaurantPhone"></span></div>
   </footer>
 </div>
 

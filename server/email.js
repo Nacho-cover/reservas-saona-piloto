@@ -17,23 +17,24 @@ function confirmationEmailHtml({ restaurant, reservation, zoneNames }) {
     ? `<p style="margin:0 0 4px;color:#65728A;font-size:14px;">📍 Zona: <strong>${zoneNames.join(', ')}</strong></p>`
     : '';
   return `<!doctype html>
-<html lang="es"><body style="margin:0;padding:0;background:#f7f6f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<html lang="es"><body style="margin:0;padding:0;background:#f4f2ec;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
-    <div style="background:#1f4d3a;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px;">
-      <div style="font-size:18px;font-weight:700;">${restaurant.name}</div>
+    <div style="background:#152b4e;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px;">
+      <div style="font-size:12px;letter-spacing:4px;font-weight:700;color:#7a99ac;margin-bottom:8px;">SAONA</div>
+      <div style="font-family:Georgia,serif;font-style:italic;font-size:22px;">${restaurant.name}</div>
       <div style="font-size:13px;opacity:0.85;">Reserva confirmada</div>
     </div>
-    <div style="background:#fff;border-radius:0 0 12px 12px;padding:24px;border:1px solid #e2e0da;border-top:none;">
-      <p style="margin:0 0 16px;font-size:15px;color:#1c1c1c;">Hola ${reservation.customer_name},</p>
-      <p style="margin:0 0 20px;font-size:15px;color:#1c1c1c;">Tu reserva está confirmada. Aquí tienes los detalles:</p>
-      <div style="background:#f7f6f3;border-radius:10px;padding:16px 18px;margin-bottom:20px;">
-        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">📅 Fecha: <strong style="color:#163627;">${fecha}</strong></p>
-        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">🕐 Hora: <strong style="color:#163627;">${reservation.time}h</strong></p>
-        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">👥 Comensales: <strong style="color:#163627;">${reservation.party_size}</strong></p>
+    <div style="background:#fff;border-radius:0 0 12px 12px;padding:24px;border:1px solid #e1ded5;border-top:none;">
+      <p style="margin:0 0 16px;font-size:15px;color:#384049;">Hola ${reservation.customer_name},</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#384049;">Tu reserva está confirmada. Aquí tienes los detalles:</p>
+      <div style="background:#f4f2ec;border-radius:10px;padding:16px 18px;margin-bottom:20px;">
+        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">📅 Fecha: <strong style="color:#152b4e;">${fecha}</strong></p>
+        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">🕐 Hora: <strong style="color:#152b4e;">${reservation.time}h</strong></p>
+        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">👥 Comensales: <strong style="color:#152b4e;">${reservation.party_size}</strong></p>
         ${zonaLinea}
       </div>
       <p style="margin:0 0 6px;font-size:13px;color:#65728A;">Si necesitas cambiar o cancelar tu reserva, llámanos:</p>
-      <p style="margin:0 0 20px;font-size:15px;color:#1c1c1c;font-weight:600;">${restaurant.phone || ''}</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#384049;font-weight:600;">${restaurant.phone || ''}</p>
       <p style="margin:0;font-size:13px;color:#65728A;">${restaurant.address || ''}</p>
     </div>
   </div>
