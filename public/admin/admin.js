@@ -344,6 +344,7 @@ function openTableSheet(t) {
     <div class="ts-section-title">Reservas en esta mesa</div>
     ${resHtml}
     <div class="ts-section-title">Añadir en esta mesa</div>
+    ${isToday && shiftLabel(nowHHMM()) !== state.shift ? `<p class="ts-empty">Estás viendo la ${escapeHtml(state.shift.toLowerCase())}; el walk-in se sienta ahora (${escapeHtml(shiftLabel(nowHHMM()).toLowerCase())}) y el plano pasará a ese turno.</p>` : ''}
     ${isToday ? `<div class="ts-add">
       <label class="field"><span>Comensales</span><input type="number" id="wiParty" min="1" value="${defaultParty}"></label>
       <label class="field wide"><span>Nombre (opcional)</span><input type="text" id="wiName" placeholder="Walk-in"></label>
@@ -400,24 +401,35 @@ function confirmCapacity(t, partySize) {
   return { ok, force: ok };
 }
 
+// Cambia el turno que se ve en el plano (y marca el botón Comida/Cena).
+function setShift(shift, reload = true) {
+  state.shift = shift;
+  $('fpShiftToggle').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.shift === shift));
+  return reload ? loadReservations() : Promise.resolve();
+}
+
 async function seatWalkIn(t) {
   const partySize = Number($('wiParty').value);
   if (!partySize || partySize < 1) { $('tsError').textContent = 'Indica cuántos comensales son.'; return; }
   const cap = confirmCapacity(t, partySize);
   if (!cap.ok) return;
   const btn = $('wiBtn');
+  const time = nowHHMM();
   btn.disabled = true;
   try {
     const res = await fetch('/api/reservations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         restaurantId: RESTAURANT_ID, customerName: $('wiName').value.trim() || 'Walk-in',
-        partySize, date: todayISO(), time: nowHHMM(), source: 'walkin', tableIds: [t.id], force: cap.force,
+        partySize, date: todayISO(), time, source: 'walkin', tableIds: [t.id], force: cap.force,
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'No se pudo sentar el walk-in');
-    await loadReservations();
+    // El walk-in se sienta a la hora actual: si estábamos viendo el otro turno, se
+    // salta al turno de ahora para que la mesa aparezca ocupada.
+    if (state.date !== todayISO()) { state.date = todayISO(); $('dateFilter').value = state.date; }
+    await setShift(shiftLabel(time));
     reopenSheet();
   } catch (err) {
     $('tsError').textContent = err.message;
@@ -755,6 +767,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderRestaurantBar($('restaurantBar'));
 
   $('dateFilter').value = state.date;
+  // Al abrir el panel se muestra el turno en curso (a partir de las 18:00, la cena).
+  setShift(shiftLabel(nowHHMM()), false);
   populateTimeSelect();
   await loadRestaurant();
   await loadReservations();
