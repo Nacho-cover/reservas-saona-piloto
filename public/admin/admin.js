@@ -107,6 +107,7 @@ function renderFloorPlanView() {
         const st = mv.statusById[t.id];
         if (st === 'available') return 'fp-target';
         if (st === 'toosmall') return 'fp-target-warn';
+        if (st === 'occupied') return 'fp-swap';
         return 'fp-dim';
       }
       const status = tableStatus.get(t.name);
@@ -118,6 +119,10 @@ function renderFloorPlanView() {
     features: RESTAURANT_ID === 1 ? SALA_INTERIOR_FEATURES : [],
     zoneLabels: RESTAURANT_ID === 1 ? SALA_INTERIOR_ZONE_LABELS : [],
     onClick: (t) => (state.moveMode ? handleMoveTarget(t) : openTableSheet(t)),
+    // Arrastrar una mesa con reserva y soltarla en otra = mover (o intercambiar si
+    // la de destino está ocupada a esa hora).
+    canDrag: (t) => !state.moveMode && !!reservationToDrag(t),
+    onDrop: (from, to) => { const r = reservationToDrag(from); if (r) moveOrSwap(r, to); },
   });
   renderMoveBanner();
 
@@ -313,7 +318,7 @@ function openTableSheet(t) {
       <div class="ts-res-meta">${r.source === 'walkin' ? 'Walk-in' : (r.phone ? escapeHtml(r.phone) : '')}${otherTables.length ? ' · junto con mesa ' + otherTables.map(escapeHtml).join(', ') : ''}${r.notes ? ' · ' + escapeHtml(r.notes) : ''}</div>
       ${canAct ? `<div class="ts-res-actions">
         ${flow.next ? `<button class="primary" data-act="next">${escapeHtml(flow.nextLabel)}</button>` : ''}
-        <button data-act="move">Mover a otra mesa</button>
+        <button data-act="move">Mover o intercambiar</button>
       </div>` : ''}
     </div>`;
   }).join('') : '<p class="ts-empty">Sin reservas en esta mesa en el turno de ' + escapeHtml(state.shift) + '.</p>';
@@ -424,7 +429,7 @@ function renderMoveBanner() {
   if (!mv) { el.innerHTML = ''; return; }
   const r = mv.reservation;
   el.innerHTML = `<div class="move-banner">
-    <span>Moviendo <b>${escapeHtml(r.customer_name)}</b> (${r.party_size}p, ${r.time}, mesa ${escapeHtml((r.tables || []).join(', ') || '—')}): pincha la mesa de destino. En verde, las libres.</span>
+    <span>Moviendo <b>${escapeHtml(r.customer_name)}</b> (${r.party_size}p, ${r.time}, mesa ${escapeHtml((r.tables || []).join(', ') || '—')}): pincha la mesa de destino: en verde las libres; en naranja las ocupadas (se intercambian).</span>
     <span class="mb-actions">
       <button id="mbComboBtn">Juntar mesas…</button>
       <button id="mbCancelBtn">Cancelar</button>
@@ -438,29 +443,72 @@ function renderMoveBanner() {
 async function handleMoveTarget(t) {
   const mv = state.moveMode;
   if (!mv) return;
-  const r = mv.reservation;
-  if ((r.tables || []).includes(t.name)) { cancelMove(); return; }
-  const st = mv.statusById[t.id];
-  if (st === 'occupied') {
-    mv.error = `La mesa ${t.name} está ocupada a esa hora.`;
-    renderMoveBanner();
-    return;
-  }
-  const cap = confirmCapacity(t, r.party_size);
-  if (!cap.ok) return;
+  if ((mv.reservation.tables || []).includes(t.name)) { cancelMove(); return; }
+  const err = await moveOrSwap(mv.reservation, t);
+  if (err && state.moveMode) { state.moveMode.error = err; renderMoveBanner(); }
+}
+
+// La reserva que se arrastra desde una mesa: si hay varias en el turno, la que está
+// en curso (sentada, comiendo…) y si no, la próxima por llegar.
+function reservationToDrag(t) {
+  const list = reservationsForTable(t).filter(r => r.status !== 'completed');
+  return list.find(r => ['seated', 'eating', 'dessert', 'paid'].includes(r.status)) || list[0] || null;
+}
+
+function toMin(hhmm) { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; }
+
+// Reservas de la mesa de destino que se solapan en horario con la que se mueve.
+function conflictsOn(t, r) {
+  const s = toMin(r.time), e = s + (r.duration_minutes || 90);
+  return state.reservations.filter(x => x.id !== r.id && !['cancelled', 'no_show', 'completed'].includes(x.status)
+    && (x.tables || []).includes(t.name)
+    && toMin(x.time) < e && s < toMin(x.time) + (x.duration_minutes || 90));
+}
+
+// Mover r a la mesa t; si t tiene otra reserva a esa hora, se ofrece intercambiarlas.
+// Devuelve un texto de error (o null si ha ido bien o se ha cancelado).
+async function moveOrSwap(r, t) {
+  if ((r.tables || []).includes(t.name)) return null;
+  const others = conflictsOn(t, r);
   try {
-    const res = await fetch(`/api/reservations/${r.id}/table`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tableIds: [t.id], force: cap.force }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'No se pudo mover la reserva');
+    if (others.length > 1) return `La mesa ${t.name} tiene varias reservas a esa hora; muévelas de una en una.`;
+    if (others.length === 1) {
+      const o = others[0];
+      const msg = `La mesa ${t.name} tiene la reserva de ${o.customer_name} (${o.party_size}p, ${o.time}).\n\n`
+        + `¿Intercambiar? ${r.customer_name} pasa a la mesa ${(o.tables || []).join('+')} y ${o.customer_name} a la mesa ${(r.tables || []).join('+') || '—'}.`;
+      if (!window.confirm(msg)) return null;
+      const res = await fetch('/api/reservations/swap', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reservationIdA: r.id, reservationIdB: o.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo intercambiar');
+    } else {
+      const cap = confirmCapacity(t, r.party_size);
+      if (!cap.ok) return null;
+      const res = await fetch(`/api/reservations/${r.id}/table`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tableIds: [t.id], force: cap.force }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo mover la reserva');
+    }
     state.moveMode = null;
     await loadReservations();
+    return null;
   } catch (err) {
-    mv.error = err.message;
-    renderMoveBanner();
+    if (!state.moveMode) toast(err.message);
+    return err.message;
   }
+}
+
+function toast(text) {
+  let el = document.getElementById('adminToast');
+  if (!el) { el = document.createElement('div'); el.id = 'adminToast'; el.className = 'admin-toast'; document.body.appendChild(el); }
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 3500);
 }
 
 let moveReservationId = null;

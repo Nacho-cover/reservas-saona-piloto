@@ -112,3 +112,9 @@
 .fp-table.fp-target-warn { background: #fff; border: 3px dashed #b8860b; color: var(--text); }
 .fp-table.fp-target-warn .fp-cap { color: var(--text-muted); }
 .fp-table.fp-dim { opacity: 0.35; }
+
+.fp-table.fp-swap { background: #fff; border: 3px solid #e67e22; color: var(--text); }
+.fp-table.fp-swap .fp-cap { color: var(--text-muted); }
+.fp-table.fp-drag-source { opacity: 0.4; }
+.fp-table.fp-drop-hover { outline: 3px solid var(--brand); outline-offset: 3px; transform: translate(-50%, -50%) scale(1.1); }
+.fp-ghost { position: fixed; transform: translate(-50%, -50%) scale(1.08); pointer-events: none; z-index: 1000; opacity: 0.92; box-shadow: 0 10px 24px rgba(21,43,78,0.35); }

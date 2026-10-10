@@ -177,3 +177,6 @@ button, input, select, textarea { font-family: inherit; }
 .move-banner button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,.5); background: transparent; color: #fff; cursor: pointer; }
 .move-banner .mb-error { flex-basis: 100%; color: #ffd7d7; font-size: 13px; }
 .move-banner .mb-error:empty { display: none; }
+
+.admin-toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 10px); background: var(--brand); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px; opacity: 0; pointer-events: none; transition: all .2s ease; z-index: 1100; max-width: 90vw; }
+.admin-toast.show { opacity: 1; transform: translate(-50%, 0); }

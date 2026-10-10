@@ -81,17 +81,22 @@ async function candidateSlots(restaurant, dateStr) {
 
 // Existing reservations occupying a given table on a date, as [start,end) minute ranges
 // (end includes the turnover buffer so back-to-back bookings respect cleaning time).
+// excludeReservationId: un id o una lista de ids (al intercambiar dos reservas de mesa
+// se excluyen las dos de la comprobación de choques).
 async function tableBusyRanges(restaurantId, tableId, dateStr, bufferMinutes, excludeReservationId) {
   let rows;
-  if (excludeReservationId) {
+  const excludeIds = Array.isArray(excludeReservationId)
+    ? excludeReservationId.map(Number).filter(Boolean)
+    : (excludeReservationId ? [Number(excludeReservationId)] : []);
+  if (excludeIds.length) {
     ({ rows } = await db.query(`
       SELECT r.time, r.duration_minutes, r.id, r.paid_at
       FROM reservations r
       JOIN reservation_tables rt ON rt.reservation_id = r.id
       WHERE r.restaurant_id = $1 AND rt.table_id = $2 AND r.date = $3
         AND r.status NOT IN ('cancelled','no_show')
-        AND r.id != $4
-    `, [restaurantId, tableId, dateStr, excludeReservationId]));
+        AND r.id <> ALL($4::int[])
+    `, [restaurantId, tableId, dateStr, excludeIds]));
   } else {
     ({ rows } = await db.query(`
       SELECT r.time, r.duration_minutes, r.id, r.paid_at

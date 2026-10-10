@@ -23,7 +23,9 @@ function renderFloorPlan(container, tables, opts = {}) {
   // opts.editable: si es true, las mesas se pueden arrastrar (llama a opts.onMove(table,
   // x, y) al soltar) y un clic simple (sin arrastrar) llama a opts.onClick(table).
   // Sin editable, opts.onClick(table) se llama al pinchar la mesa (panel de reservas).
-  const { getClass, features = [], zoneLabels = [], editable = false, onMove, onClick } = opts;
+  // opts.canDrag(table) + opts.onDrop(fromTable, toTable): en el panel de reservas, una
+  // mesa con reserva se puede arrastrar y soltar sobre otra (mover o intercambiar).
+  const { getClass, features = [], zoneLabels = [], editable = false, onMove, onClick, canDrag, onDrop } = opts;
   container.innerHTML = '';
   const withPos = tables.filter(t => t.pos_x != null && t.pos_y != null);
   if (!withPos.length) {
@@ -68,12 +70,14 @@ function renderFloorPlan(container, tables, opts = {}) {
     capEl.textContent = `${t.capacity_min}-${t.capacity_max}`;
     node.appendChild(nameEl);
     node.appendChild(capEl);
+    node.dataset.tableId = t.id;
     if (editable) attachDrag(node, canvas, t, { onMove, onClick });
     else if (onClick) {
       node.classList.add('fp-clickable');
       node.tabIndex = 0;
       node.setAttribute('role', 'button');
-      node.addEventListener('click', () => onClick(t));
+      if (canDrag && onDrop && canDrag(t)) attachReservationDrag(node, t, withPos, onDrop);
+      node.addEventListener('click', () => { if (node.dataset.justDragged) { delete node.dataset.justDragged; return; } onClick(t); });
       node.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(t); } });
     }
     canvas.appendChild(node);
@@ -128,4 +132,70 @@ function attachDrag(node, canvas, table, { onMove, onClick }) {
   node.addEventListener('touchstart', (e) => { const t = e.touches[0]; onDown(t.clientX, t.clientY); }, { passive: true });
   window.addEventListener('touchmove', (e) => { if (dragging) { const t = e.touches[0]; onMoveEvt(t.clientX, t.clientY); } }, { passive: true });
   window.addEventListener('touchend', onUp);
+}
+
+// Arrastrar una mesa CON RESERVA hasta otra mesa (panel de reservas): se mueve una
+// copia de la mesa bajo el dedo/ratón y al soltar sobre otra mesa se llama a
+// onDrop(origen, destino). Un toque sin arrastrar sigue abriendo la ficha (click).
+function attachReservationDrag(node, table, tables, onDrop) {
+  let start = null, ghost = null, hoverEl = null;
+  const byId = new Map(tables.map(t => [String(t.id), t]));
+
+  const targetAt = (x, y) => {
+    if (ghost) ghost.style.display = 'none';
+    const el = document.elementFromPoint(x, y);
+    if (ghost) ghost.style.display = '';
+    const tEl = el && el.closest ? el.closest('.fp-table') : null;
+    return tEl && tEl !== node ? tEl : null;
+  };
+
+  const onDown = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    start = { x: e.clientX, y: e.clientY, id: e.pointerId };
+  };
+  const onMove = (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    if (!ghost) {
+      if (Math.abs(e.clientX - start.x) < 6 && Math.abs(e.clientY - start.y) < 6) return;
+      ghost = node.cloneNode(true);
+      ghost.classList.add('fp-ghost');
+      const r = node.getBoundingClientRect();
+      ghost.style.width = r.width + 'px';
+      ghost.style.height = r.height + 'px';
+      document.body.appendChild(ghost);
+      node.classList.add('fp-drag-source');
+      try { node.setPointerCapture(e.pointerId); } catch { /* sin captura: sigue funcionando */ }
+    }
+    e.preventDefault();
+    ghost.style.left = e.clientX + 'px';
+    ghost.style.top = e.clientY + 'px';
+    const tEl = targetAt(e.clientX, e.clientY);
+    if (tEl !== hoverEl) {
+      if (hoverEl) hoverEl.classList.remove('fp-drop-hover');
+      hoverEl = tEl;
+      if (hoverEl) hoverEl.classList.add('fp-drop-hover');
+    }
+  };
+  const finish = (e, cancelled) => {
+    if (!start || (e && e.pointerId !== start.id)) return;
+    const wasDragging = !!ghost;
+    if (ghost) { ghost.remove(); ghost = null; }
+    node.classList.remove('fp-drag-source');
+    if (hoverEl) hoverEl.classList.remove('fp-drop-hover');
+    const tEl = (!cancelled && wasDragging && e) ? targetAt(e.clientX, e.clientY) : null;
+    hoverEl = null;
+    start = null;
+    if (wasDragging) {
+      node.dataset.justDragged = '1';
+      setTimeout(() => { delete node.dataset.justDragged; }, 400);
+      const to = tEl && byId.get(tEl.dataset.tableId);
+      if (to) onDrop(table, to);
+    }
+  };
+
+  node.style.touchAction = 'none';
+  node.addEventListener('pointerdown', onDown);
+  node.addEventListener('pointermove', onMove);
+  node.addEventListener('pointerup', (e) => finish(e, false));
+  node.addEventListener('pointercancel', (e) => finish(e, true));
 }

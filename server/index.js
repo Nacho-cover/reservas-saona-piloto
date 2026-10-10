@@ -388,6 +388,47 @@ app.patch('/api/reservations/:id/table', adminAuth.requireAdminAuth, async (req,
   res.json({ ...updatedRows[0], tables: tableRows.map(t => t.name) });
 });
 
+// --- Reservations: intercambiar las mesas de dos reservas (admin) -----------------
+// La reserva A pasa a las mesas de B y B a las de A (como "intercambiar" en Cover).
+// Se comprueba que ninguna de las dos choque con otras reservas en sus mesas nuevas;
+// la capacidad no se comprueba (el panel ya avisa si no encaja y el personal decide).
+app.post('/api/reservations/swap', adminAuth.requireAdminAuth, async (req, res) => {
+  const idA = Number(req.body.reservationIdA);
+  const idB = Number(req.body.reservationIdB);
+  if (!idA || !idB || idA === idB) return res.status(400).json({ error: 'Indica las dos reservas a intercambiar.' });
+  const { rows } = await db.query('SELECT * FROM reservations WHERE id = ANY($1::int[])', [[idA, idB]]);
+  const a = rows.find(r => r.id === idA);
+  const b = rows.find(r => r.id === idB);
+  if (!a || !b) return res.status(404).json({ error: 'Reserva no encontrada' });
+  if (a.restaurant_id !== b.restaurant_id || a.date !== b.date) {
+    return res.status(400).json({ error: 'Solo se pueden intercambiar reservas del mismo local y día.' });
+  }
+  if (['cancelled', 'no_show'].includes(a.status) || ['cancelled', 'no_show'].includes(b.status)) {
+    return res.status(400).json({ error: 'No se puede intercambiar una reserva cancelada o no-show.' });
+  }
+  const restaurant = await getRestaurant(a.restaurant_id);
+  const tablesOf = async (id) => (await db.query('SELECT table_id FROM reservation_tables WHERE reservation_id = $1', [id])).rows.map(r => r.table_id);
+  const tablesA = await tablesOf(a.id);
+  const tablesB = await tablesOf(b.id);
+  if (!tablesA.length || !tablesB.length) return res.status(400).json({ error: 'Las dos reservas deben tener mesa asignada.' });
+
+  const both = [a.id, b.id];
+  const okA = await availability.validateChosenTables(restaurant.id, a.date, tablesB, availability.toMinutes(a.time),
+    a.duration_minutes, a.party_size, restaurant.turnover_buffer_minutes, both, { ignoreCapacity: true });
+  const okB = await availability.validateChosenTables(restaurant.id, b.date, tablesA, availability.toMinutes(b.time),
+    b.duration_minutes, b.party_size, restaurant.turnover_buffer_minutes, both, { ignoreCapacity: true });
+  if (!okA || !okB) {
+    return res.status(409).json({ error: 'No se puede intercambiar: alguna de las mesas tiene otra reserva que se solapa.' });
+  }
+
+  await db.withTransaction(async (client) => {
+    await client.query('DELETE FROM reservation_tables WHERE reservation_id = ANY($1::int[])', [both]);
+    for (const t of tablesB) await client.query('INSERT INTO reservation_tables (reservation_id, table_id) VALUES ($1, $2)', [a.id, t]);
+    for (const t of tablesA) await client.query('INSERT INTO reservation_tables (reservation_id, table_id) VALUES ($1, $2)', [b.id, t]);
+  });
+  res.json({ ok: true });
+});
+
 // --- Shifts / horario semanal (admin) ----------------------------------------
 // La plantilla semanal: un turno (p. ej. "Comida") tiene un horario por día de la
 // semana. "Todos los días" en el panel simplemente llama a esta ruta 7 veces (una
