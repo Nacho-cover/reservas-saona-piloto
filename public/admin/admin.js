@@ -116,6 +116,15 @@ function renderFloorPlanView() {
     },
     // El muro, la escalera y las etiquetas de zona son del plano de Plaza España;
     // en el resto de locales no se dibujan.
+    getInfo: (t) => {
+      if (mv) return null;
+      const list = reservationsForTable(t).filter(r => r.status !== 'completed');
+      if (!list.length) return null;
+      const r = reservationToDrag(t);
+      const first = `${r.time} · ${r.party_size}p${list.length > 1 ? ` (+${list.length - 1})` : ''}`;
+      const name = r.source === 'walkin' && (!r.customer_name || r.customer_name === 'Walk-in') ? 'Walk-in' : r.customer_name.split(' ')[0];
+      return [first, name];
+    },
     features: RESTAURANT_ID === 1 ? SALA_INTERIOR_FEATURES : [],
     zoneLabels: RESTAURANT_ID === 1 ? SALA_INTERIOR_ZONE_LABELS : [],
     onClick: (t) => (state.moveMode ? handleMoveTarget(t) : openTableSheet(t)),
@@ -268,13 +277,14 @@ async function updateStatus(id, status) {
 
 async function cancelReservation(id, cancelledBy) {
   const who = cancelledBy === 'restaurant' ? 'el restaurante' : 'el cliente';
-  if (!confirm(`¿Cancelar esta reserva? (cancela ${who})`)) return;
+  if (!confirm(`¿Cancelar esta reserva? (cancela ${who})`)) return false;
   await fetch(`/api/reservations/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: 'cancelled', cancelledBy }),
   });
-  loadReservations();
+  await loadReservations();
+  return true;
 }
 
 async function markNoShow(id) {
@@ -318,7 +328,11 @@ function openTableSheet(t) {
       <div class="ts-res-meta">${r.source === 'walkin' ? 'Walk-in' : (r.phone ? escapeHtml(r.phone) : '')}${otherTables.length ? ' · junto con mesa ' + otherTables.map(escapeHtml).join(', ') : ''}${r.notes ? ' · ' + escapeHtml(r.notes) : ''}</div>
       ${canAct ? `<div class="ts-res-actions">
         ${flow.next ? `<button class="primary" data-act="next">${escapeHtml(flow.nextLabel)}</button>` : ''}
-        <button data-act="move">Mover o intercambiar</button>
+        <button class="btn-move" data-act="move">Mover o intercambiar</button>
+        <button class="btn-move" data-act="join">Juntar mesas…</button>
+        <button class="btn-noshow" data-act="noshow">No-show</button>
+        <button class="btn-cancel-restaurant" data-act="cancel-restaurant">Cancela restaurante</button>
+        <button class="btn-cancel-customer" data-act="cancel-customer">Cancela cliente</button>
       </div>` : ''}
     </div>`;
   }).join('') : '<p class="ts-empty">Sin reservas en esta mesa en el turno de ' + escapeHtml(state.shift) + '.</p>';
@@ -348,6 +362,18 @@ function openTableSheet(t) {
       reopenSheet();
     });
     el.querySelector('[data-act="move"]')?.addEventListener('click', () => startMove(r));
+    el.querySelector('[data-act="join"]')?.addEventListener('click', () => { closeTableSheet(); openMoveModal(r); });
+    el.querySelector('[data-act="noshow"]')?.addEventListener('click', async () => {
+      if (!confirm('¿Marcar como no-show? (el cliente reservó y no se presentó)')) return;
+      await updateStatus(r.id, 'no_show');
+      reopenSheet();
+    });
+    for (const who of ['restaurant', 'customer']) {
+      el.querySelector(`[data-act="cancel-${who}"]`)?.addEventListener('click', async () => {
+        if (!(await cancelReservation(r.id, who))) return;
+        reopenSheet();
+      });
+    }
   });
   $('wiBtn')?.addEventListener('click', () => seatWalkIn(t));
   $('tsNewResBtn').addEventListener('click', () => { closeTableSheet(); openModal(t); });

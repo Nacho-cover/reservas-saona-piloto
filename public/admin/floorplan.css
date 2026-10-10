@@ -118,3 +118,9 @@
 .fp-table.fp-drag-source { opacity: 0.4; }
 .fp-table.fp-drop-hover { outline: 3px solid var(--brand); outline-offset: 3px; transform: translate(-50%, -50%) scale(1.1); }
 .fp-ghost { position: fixed; transform: translate(-50%, -50%) scale(1.08); pointer-events: none; z-index: 1000; opacity: 0.92; box-shadow: 0 10px 24px rgba(21,43,78,0.35); }
+
+/* Reserva que tiene cada mesa, dentro de la mesa (en lugar de la capacidad): hora · comensales / nombre */
+.fp-table.fp-has-info .fp-cap { display: none; }
+.fp-table .fp-info { font-size: 9.5px; line-height: 1.2; font-weight: 600; text-align: center; max-width: 54px; pointer-events: none; }
+.fp-table .fp-info div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-table .fp-info div + div { font-weight: 500; }

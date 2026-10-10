@@ -25,7 +25,9 @@ function renderFloorPlan(container, tables, opts = {}) {
   // Sin editable, opts.onClick(table) se llama al pinchar la mesa (panel de reservas).
   // opts.canDrag(table) + opts.onDrop(fromTable, toTable): en el panel de reservas, una
   // mesa con reserva se puede arrastrar y soltar sobre otra (mover o intercambiar).
-  const { getClass, features = [], zoneLabels = [], editable = false, onMove, onClick, canDrag, onDrop } = opts;
+  // opts.getInfo(table): texto corto (o array de líneas) que se pinta pegado a la mesa
+  // con la reserva que tiene (hora, nombre, comensales).
+  const { getClass, getInfo, features = [], zoneLabels = [], editable = false, onMove, onClick, canDrag, onDrop } = opts;
   container.innerHTML = '';
   const withPos = tables.filter(t => t.pos_x != null && t.pos_y != null);
   if (!withPos.length) {
@@ -71,6 +73,19 @@ function renderFloorPlan(container, tables, opts = {}) {
     node.appendChild(nameEl);
     node.appendChild(capEl);
     node.dataset.tableId = t.id;
+    const info = getInfo ? getInfo(t) : null;
+    if (info && info.length) {
+      const tag = document.createElement('div');
+      tag.className = 'fp-info';
+      for (const line of [].concat(info)) {
+        const l = document.createElement('div');
+        l.textContent = line;
+        tag.appendChild(l);
+      }
+      node.appendChild(tag);
+      node.classList.add('fp-has-info');
+      node.title += '\n' + [].concat(info).join('\n');
+    }
     if (editable) attachDrag(node, canvas, t, { onMove, onClick });
     else if (onClick) {
       node.classList.add('fp-clickable');

@@ -180,3 +180,7 @@ button, input, select, textarea { font-family: inherit; }
 
 .admin-toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 10px); background: var(--brand); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px; opacity: 0; pointer-events: none; transition: all .2s ease; z-index: 1100; max-width: 90vw; }
 .admin-toast.show { opacity: 1; transform: translate(-50%, 0); }
+.ts-res-actions .btn-move { background: #dde9fc; color: #1c56c9; border-color: transparent; }
+.ts-res-actions .btn-noshow { background: #fde8cc; color: #a15c00; border-color: transparent; }
+.ts-res-actions .btn-cancel-restaurant { background: #fbdad6; color: #a5301f; border-color: transparent; }
+.ts-res-actions .btn-cancel-customer { background: #f3e0f7; color: #7a2f96; border-color: transparent; }
