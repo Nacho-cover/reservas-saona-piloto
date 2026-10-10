@@ -1,23 +1,33 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Playfair+Display:ital,wght@0,500;1,500&display=swap");
+/* Identidad de Saona (igual que la web de cliente): azul marino, azul acero del logo, arena. */
 :root {
-  --brand: #1f4d3a;
-  --brand-dark: #163627;
-  --brand-light: #e8f0ea;
-  --bg: #f7f6f3;
+  --brand: #152b4e;
+  --brand-dark: #0e1f3a;
+  --brand-light: #e6ecf2;
+  --steel: #7a99ac;
+  --sand: #dbd9d1;
+  --bg: #f4f2ec;
   --surface: #ffffff;
-  --text: #1c1c1c;
-  --text-muted: #6b6b6b;
-  --border: #e2e0da;
+  --text: #384049;
+  --text-muted: #6b7480;
+  --border: #e1ded5;
   --danger: #b3261e;
   --warn: #b8860b;
   --radius: 12px;
 }
 * { box-sizing: border-box; }
-body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+body { margin: 0; font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+/* Franja de marca con el logo SAONA en todas las pantallas del panel. */
+body::before {
+  content: ""; display: block; height: 46px; background: var(--brand) url("/icons/saona-logo.svg") no-repeat 20px center / auto 18px;
+}
+@media print { body::before { display: none; } }
+button, input, select, textarea { font-family: inherit; }
 
 .admin { max-width: 1100px; margin: 0 auto; padding: 20px; }
 
 .admin-topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
-.admin-title { font-size: 20px; font-weight: 700; color: var(--brand-dark); }
+.admin-title { font-family: "Playfair Display", Georgia, serif; font-style: italic; font-size: 26px; font-weight: 500; color: var(--brand); }
 .admin-sub { font-size: 13px; color: var(--text-muted); }
 
 .admin-controls { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -125,7 +135,7 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
   background: var(--surface); border-radius: var(--radius); padding: 32px 28px;
   width: 100%; max-width: 360px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
-.login-card h1 { font-size: 20px; margin: 0 0 2px; color: var(--brand-dark); }
+.login-card h1 { font-family: "Playfair Display", Georgia, serif; font-style: italic; font-weight: 500; font-size: 28px; margin: 0 0 2px; color: var(--brand); }
 .login-card .admin-sub { margin-bottom: 20px; }
 .login-card .field { margin-bottom: 14px; }
 .login-card .field input { width: 100%; }
@@ -138,6 +148,6 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
 /* Selector de local (multi-restaurante) en el topbar de staff — ver authbar.js */
 .restaurant-select {
   font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: 8px;
-  border: 1px solid var(--border, #d8ddd6); background: #fff; color: var(--text, #163627);
+  border: 1px solid var(--border, #e1ded5); background: #fff; color: var(--text, #384049);
   cursor: pointer;
 }

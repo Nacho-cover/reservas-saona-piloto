@@ -17,7 +17,7 @@ const TABLE_SIZE = 58, BAR_SIZE = 46;
 
 // Colores por zona (relleno suave + borde), en el orden de las zonas del plano.
 const ZONE_COLORS = [
-  { fill: '#e8f0ea', stroke: '#1f4d3a' },
+  { fill: '#e6ecf2', stroke: '#152b4e' },
   { fill: '#e6eefc', stroke: '#2f5fbf' },
   { fill: '#fdf1dc', stroke: '#b07a12' },
   { fill: '#fbe7ef', stroke: '#b3476f' },
