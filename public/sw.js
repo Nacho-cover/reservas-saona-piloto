@@ -1,4 +1,4 @@
-const CACHE = 'reservas-v4';
+const CACHE = 'reservas-v5';
 const ASSETS = ['/', '/style.css', '/app.js', '/manifest.json', '/icons/saona-logo.svg'];
 
 self.addEventListener('install', (event) => {
@@ -13,10 +13,17 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Red primero (y se guarda copia) para que un cambio de diseño se vea a la primera;
+// la caché solo se usa sin conexión. Las llamadas a /api/ nunca se cachean.
 self.addEventListener('fetch', (event) => {
-  // Network-first for API calls, cache-first for static assets.
-  if (event.request.url.includes('/api/')) return;
+  const req = event.request;
+  if (req.method !== 'GET' || req.url.includes('/api/') || !req.url.startsWith(self.location.origin)) return;
   event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request))
+    fetch(req)
+      .then(res => {
+        if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
+        return res;
+      })
+      .catch(() => caches.match(req, { ignoreSearch: true }))
   );
 });
