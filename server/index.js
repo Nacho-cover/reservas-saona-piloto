@@ -324,7 +324,10 @@ app.patch('/api/reservations/:id', adminAuth.requireAdminAuth, async (req, res) 
 
   // Al pasar a "Pagada" se guarda el momento exacto: la mesa se libera 2 min después
   // de esto (ver availability.tableBusyRanges), no al terminar la duración estándar.
-  const paidAt = (status === 'paid' && existing.status !== 'paid') ? dayjs().format('YYYY-MM-DD HH:mm:ss') : null;
+  // "Liberar mesa" (pasar a Completada) también deja la mesa libre desde ese momento,
+  // si no se había marcado antes como Pagada.
+  const paidAt = ((status === 'paid' && existing.status !== 'paid') || (status === 'completed' && !existing.paid_at))
+    ? dayjs().format('YYYY-MM-DD HH:mm:ss') : null;
   const cancelledByValue = status === 'cancelled' ? cancelledBy : null;
   // Se guarda cuándo se canceló (para el informe de cancelaciones con poca antelación).
   const markCancelledAt = status === 'cancelled' && existing.status !== 'cancelled';

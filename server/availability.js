@@ -90,7 +90,7 @@ async function tableBusyRanges(restaurantId, tableId, dateStr, bufferMinutes, ex
     : (excludeReservationId ? [Number(excludeReservationId)] : []);
   if (excludeIds.length) {
     ({ rows } = await db.query(`
-      SELECT r.time, r.duration_minutes, r.id, r.paid_at
+      SELECT r.time, r.duration_minutes, r.id, r.paid_at, r.status
       FROM reservations r
       JOIN reservation_tables rt ON rt.reservation_id = r.id
       WHERE r.restaurant_id = $1 AND rt.table_id = $2 AND r.date = $3
@@ -99,7 +99,7 @@ async function tableBusyRanges(restaurantId, tableId, dateStr, bufferMinutes, ex
     `, [restaurantId, tableId, dateStr, excludeIds]));
   } else {
     ({ rows } = await db.query(`
-      SELECT r.time, r.duration_minutes, r.id, r.paid_at
+      SELECT r.time, r.duration_minutes, r.id, r.paid_at, r.status
       FROM reservations r
       JOIN reservation_tables rt ON rt.reservation_id = r.id
       WHERE r.restaurant_id = $1 AND rt.table_id = $2 AND r.date = $3
@@ -113,7 +113,8 @@ async function tableBusyRanges(restaurantId, tableId, dateStr, bufferMinutes, ex
     // en vez de esperar a que acabe la duración estándar de la reserva.
     if (r.paid_at && r.paid_at.slice(0, 10) === dateStr) {
       const [ph, pm] = r.paid_at.slice(11, 16).split(':').map(Number);
-      const paidEnd = Math.max(start, ph * 60 + pm) + 2;
+      // Con "Liberar mesa" (Completada) la mesa queda libre en ese mismo minuto.
+      const paidEnd = Math.max(start, ph * 60 + pm) + (r.status === 'completed' ? 0 : 2);
       end = Math.min(end, paidEnd);
     }
     return { start, end, reservationId: r.id };

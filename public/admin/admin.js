@@ -34,6 +34,11 @@ const STATUS_FLOW = {
   cancelled: { label: 'Cancelada', color: '', next: null },
   no_show: { label: 'No-show', color: '', next: null },
 };
+// Estados en los que el cliente está en la mesa: se puede "Liberar mesa".
+const IN_TABLE = ['seated', 'eating', 'dessert', 'paid'];
+async function releaseTable(id) {
+  await updateStatus(id, 'completed');
+}
 const STATUS_LABELS = Object.fromEntries(Object.entries(STATUS_FLOW).map(([k, v]) => [k, v.label]));
 
 async function loadRestaurant() {
@@ -96,7 +101,8 @@ function renderFloorPlanView() {
   renderClosureBar();
   const shiftReservations = state.reservations.filter(r => r.status !== 'cancelled' && r.status !== 'no_show' && shiftLabel(r.time) === state.shift);
   const tableStatus = new Map();
-  shiftReservations.forEach(r => (r.tables || []).forEach(name => tableStatus.set(name, r.status)));
+  // Las reservas completadas (mesa liberada) ya no ocupan la mesa en el plano.
+  shiftReservations.filter(r => r.status !== 'completed').forEach(r => (r.tables || []).forEach(name => tableStatus.set(name, r.status)));
   const busyTableNames = new Set(tableStatus.keys());
 
   const mv = state.moveMode;
@@ -236,9 +242,10 @@ function renderRow(r) {
   const actions = document.createElement('div');
   actions.className = 'res-actions';
   if (r.status !== 'cancelled' && r.status !== 'completed' && r.status !== 'no_show') {
-    if (flow.next) {
+    if (flow.next && flow.next !== 'completed') {
       actions.appendChild(actionBtn(flow.nextLabel, () => updateStatus(r.id, flow.next)));
     }
+    if (IN_TABLE.includes(r.status)) actions.appendChild(actionBtn('Liberar mesa', () => releaseTable(r.id), 'btn-release'));
     actions.appendChild(actionBtn('Cambiar mesa', () => openMoveModal(r), 'btn-move'));
     actions.appendChild(actionBtn('No-show', () => markNoShow(r.id), 'btn-noshow'));
     actions.appendChild(actionBtn('Cancela restaurante', () => cancelReservation(r.id, 'restaurant'), 'btn-cancel-restaurant'));
@@ -305,15 +312,15 @@ function reservationsForTable(t) {
     .sort((a, b) => a.time.localeCompare(b.time));
 }
 
-function nowHHMM() {
+function nowHHMM(exact = false) {
   const d = new Date();
-  const m = Math.floor(d.getMinutes() / 5) * 5; // redondeo a 5 min
+  const m = exact ? d.getMinutes() : Math.floor(d.getMinutes() / 5) * 5; // redondeo a 5 min
   return `${String(d.getHours()).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 function openTableSheet(t) {
   state.sheetTable = t;
-  const list = reservationsForTable(t);
+  const list = reservationsForTable(t).filter(r => r.status !== 'completed'); // las ya liberadas no se muestran
   const isToday = state.date === todayISO();
   const sheet = $('tableSheet');
   const resHtml = list.length ? list.map(r => {
@@ -327,7 +334,8 @@ function openTableSheet(t) {
       </div>
       <div class="ts-res-meta">${r.source === 'walkin' ? 'Walk-in' : (r.phone ? escapeHtml(r.phone) : '')}${otherTables.length ? ' · junto con mesa ' + otherTables.map(escapeHtml).join(', ') : ''}${r.notes ? ' · ' + escapeHtml(r.notes) : ''}</div>
       ${canAct ? `<div class="ts-res-actions">
-        ${flow.next ? `<button class="primary" data-act="next">${escapeHtml(flow.nextLabel)}</button>` : ''}
+        ${flow.next && flow.next !== 'completed' ? `<button class="primary" data-act="next">${escapeHtml(flow.nextLabel)}</button>` : ''}
+        ${IN_TABLE.includes(r.status) ? `<button class="btn-release" data-act="release">Liberar mesa</button>` : ''}
         <button class="btn-move" data-act="move">Mover o intercambiar</button>
         <button class="btn-move" data-act="join">Juntar mesas…</button>
         <button class="btn-noshow" data-act="noshow">No-show</button>
@@ -363,6 +371,10 @@ function openTableSheet(t) {
       reopenSheet();
     });
     el.querySelector('[data-act="move"]')?.addEventListener('click', () => startMove(r));
+    el.querySelector('[data-act="release"]')?.addEventListener('click', async () => {
+      await releaseTable(r.id);
+      closeTableSheet();
+    });
     el.querySelector('[data-act="join"]')?.addEventListener('click', () => { closeTableSheet(); openMoveModal(r); });
     el.querySelector('[data-act="noshow"]')?.addEventListener('click', async () => {
       if (!confirm('¿Marcar como no-show? (el cliente reservó y no se presentó)')) return;
@@ -414,7 +426,7 @@ async function seatWalkIn(t) {
   const cap = confirmCapacity(t, partySize);
   if (!cap.ok) return;
   const btn = $('wiBtn');
-  const time = nowHHMM();
+  const time = nowHHMM(true); // minuto exacto: así cabe justo después de liberar la mesa
   btn.disabled = true;
   try {
     const res = await fetch('/api/reservations', {

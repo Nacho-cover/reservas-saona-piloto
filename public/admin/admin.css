@@ -184,3 +184,6 @@ button, input, select, textarea { font-family: inherit; }
 .ts-res-actions .btn-noshow { background: #fde8cc; color: #a15c00; border-color: transparent; }
 .ts-res-actions .btn-cancel-restaurant { background: #fbdad6; color: #a5301f; border-color: transparent; }
 .ts-res-actions .btn-cancel-customer { background: #f3e0f7; color: #7a2f96; border-color: transparent; }
+
+.res-actions .btn-release, .ts-res-actions .btn-release { background: #d9f2e1; color: #1d6b3a; border-color: transparent; font-weight: 600; }
+.res-actions .btn-release:hover, .ts-res-actions .btn-release:hover { background: #c3ead0; }
