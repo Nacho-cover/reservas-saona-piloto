@@ -132,6 +132,20 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
   }
   const restaurant = req.restaurant;
   const bookingSource = source || 'web';
+  // Las reservas de teléfono, panel y walk-in solo puede crearlas el personal con sesión
+  // iniciada (se saltan la ventana de reserva, el consentimiento y el cupo de la web).
+  const STAFF_SOURCES = ['phone', 'admin', 'walkin'];
+  const isStaffBooking = STAFF_SOURCES.includes(bookingSource);
+  if (!isStaffBooking && !['web', 'app'].includes(bookingSource)) {
+    return res.status(400).json({ error: 'Origen de reserva no válido.' });
+  }
+  if (isStaffBooking) {
+    const { admin_session: token } = adminAuth.parseCookies(req);
+    if (!adminAuth.isValidSession(token)) return res.status(401).json({ error: 'No has iniciado sesión.' });
+  }
+  const isWalkIn = bookingSource === 'walkin';
+  // El personal puede forzar una mesa aunque no encaje por capacidad (con aviso en el panel).
+  const ignoreCapacity = isStaffBooking && req.body.force === true;
 
   if (Number(partySize) > restaurant.max_party_size) {
     return res.status(400).json({ error: `Para grupos de más de ${restaurant.max_party_size} personas, contacta directamente con el restaurante.` });
@@ -181,10 +195,12 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
   let tables;
   if (Array.isArray(req.body.tableIds) && req.body.tableIds.length) {
     tables = await availability.validateChosenTables(
-      restaurant.id, date, req.body.tableIds, startMinutes, duration, Number(partySize), buffer, null
+      restaurant.id, date, req.body.tableIds, startMinutes, duration, Number(partySize), buffer, null, { ignoreCapacity }
     );
     if (!tables) {
-      return res.status(409).json({ error: 'La mesa elegida ya no está disponible. Vuelve a elegir mesa en el plano.' });
+      return res.status(409).json({ error: isStaffBooking
+        ? 'Esa mesa no está libre a esa hora (o no encaja con el número de comensales).'
+        : 'La mesa elegida ya no está disponible. Vuelve a elegir mesa en el plano.' });
     }
   } else {
     const zoneId = req.body.zoneId ? Number(req.body.zoneId) : null;
@@ -195,7 +211,9 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
       return res.status(409).json({ error: 'Ya no hay disponibilidad para esa franja en la zona elegida. Elige otra hora o zona.' });
     }
   }
-  if (!(await availability.hasCapacityRoom(restaurant.id, date, startMinutes, Number(partySize), null))) {
+  // El cupo por intervalo es del motor web (como en Cover): el personal puede anotar por
+  // encima de él por teléfono o sentar walk-ins.
+  if (!isStaffBooking && !(await availability.hasCapacityRoom(restaurant.id, date, startMinutes, Number(partySize), null))) {
     return res.status(409).json({ error: 'Se ha alcanzado el aforo máximo para esa franja horaria. Elige otra hora.' });
   }
 
@@ -220,9 +238,10 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
 
     const { rows: inserted } = await client.query(`
       INSERT INTO reservations (restaurant_id, customer_id, customer_name, phone, email, party_size, date, time, duration_minutes, status, source, notes, consent_accepted)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, 'confirmed', $10, $11, $12) RETURNING id
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, $13, $10, $11, $12) RETURNING id
     `, [restaurant.id, customer ? customer.id : null, customerName, phone || null, email || null,
-        Number(partySize), date, time, duration, bookingSource, notes || null, consentAccepted ? 1 : 0]);
+        Number(partySize), date, time, duration, bookingSource, notes || null, consentAccepted ? 1 : 0,
+        isWalkIn ? 'seated' : 'confirmed']);
 
     const reservationId = inserted[0].id;
     for (const t of tables) {
@@ -332,7 +351,7 @@ app.delete('/api/reservations/:id', adminAuth.requireAdminAuth, async (req, res)
 
 // --- Reservations: move to a different table/combo (admin) -----------------
 app.patch('/api/reservations/:id/table', adminAuth.requireAdminAuth, async (req, res) => {
-  const { tableIds } = req.body;
+  const { tableIds, force } = req.body;
   if (!Array.isArray(tableIds) || !tableIds.length) {
     return res.status(400).json({ error: 'Elige una mesa.' });
   }
@@ -347,10 +366,12 @@ app.patch('/api/reservations/:id/table', adminAuth.requireAdminAuth, async (req,
   const startMinutes = availability.toMinutes(existing.time);
   const tables = await availability.validateChosenTables(
     restaurant.id, existing.date, tableIds, startMinutes, existing.duration_minutes,
-    existing.party_size, restaurant.turnover_buffer_minutes, existing.id
+    existing.party_size, restaurant.turnover_buffer_minutes, existing.id, { ignoreCapacity: force === true }
   );
   if (!tables) {
-    return res.status(409).json({ error: 'Esa mesa ya no está disponible para esta reserva. Elige otra.' });
+    return res.status(409).json({ error: force === true
+      ? 'Esa mesa ya está ocupada a esa hora. Elige otra.'
+      : 'Esa mesa ya no está disponible para esta reserva (ocupada o no encaja con los comensales). Elige otra.' });
   }
 
   await db.withTransaction(async (client) => {

@@ -54,7 +54,7 @@ const ESTADO_SQL = `CASE r.status
 
 const CANAL_SQL = `CASE r.source
   WHEN 'web' THEN 'Web' WHEN 'app' THEN 'App'
-  WHEN 'phone' THEN 'Teléfono' WHEN 'admin' THEN 'Panel'
+  WHEN 'phone' THEN 'Teléfono' WHEN 'admin' THEN 'Panel' WHEN 'walkin' THEN 'Walk-in'
   ELSE r.source END`;
 
 // Reservas que "fueron" (el cliente llegó a sentarse).
@@ -73,6 +73,7 @@ const STATUS_FILTERS = {
   no_show: { label: 'No show', sql: `r.status = 'no_show'` },
   web: { label: 'Reservas hechas desde la web / app', sql: `r.source IN ('web','app')` },
   telefono: { label: 'Reservas hechas desde el panel (teléfono)', sql: `r.source IN ('phone','admin')` },
+  walkin: { label: 'Walk-in (sin reserva)', sql: `r.source = 'walkin'` },
 };
 
 // --- Contexto de cada petición ------------------------------------------------

@@ -151,3 +151,29 @@ button, input, select, textarea { font-family: inherit; }
   border: 1px solid var(--border, #e1ded5); background: #fff; color: var(--text, #384049);
   cursor: pointer;
 }
+
+/* Ficha de mesa (al pinchar una mesa del plano) */
+.table-sheet h2 { margin: 0 0 2px; font-family: "Playfair Display", Georgia, serif; font-style: italic; font-weight: 500; color: var(--brand); }
+.table-sheet .ts-sub { color: var(--text-muted); font-size: 13px; margin: 0 0 16px; }
+.ts-section-title { font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--text-muted); margin: 16px 0 8px; }
+.ts-res { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--bg); }
+.ts-res-top { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.ts-res-name { font-weight: 700; }
+.ts-res-meta { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+.ts-res-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.ts-res-actions button, .ts-add button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--text); cursor: pointer; }
+.ts-res-actions button.primary, .ts-add button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+.ts-empty { font-size: 13.5px; color: var(--text-muted); margin: 0 0 8px; }
+.ts-add { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.ts-add .field { margin: 0; }
+.ts-add .field input { width: 120px; }
+.ts-add .field.wide input { width: 180px; }
+.ts-error { color: var(--danger); font-size: 13px; min-height: 16px; margin: 8px 0 0; }
+
+/* Aviso del modo mover reserva */
+.move-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--brand); color: #fff; border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; font-size: 14px; }
+.move-banner b { font-weight: 700; }
+.move-banner .mb-actions { margin-left: auto; display: flex; gap: 8px; }
+.move-banner button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,.5); background: transparent; color: #fff; cursor: pointer; }
+.move-banner .mb-error { flex-basis: 100%; color: #ffd7d7; font-size: 13px; }
+.move-banner .mb-error:empty { display: none; }

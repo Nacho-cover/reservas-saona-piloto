@@ -55,12 +55,14 @@
       <button data-shift="Cena">Cena</button>
     </div>
     <div id="closureBar" style="margin-bottom:10px"></div>
+    <div id="moveBanner"></div>
     <div class="fp-stats" id="fpStats"></div>
     <div class="fp-zone-stats" id="fpZoneStats"></div>
     <div id="floorPlanView"></div>
     <div class="fp-legend">
       <span><span class="fp-legend-dot"></span>Libre</span>
       <span><span class="fp-legend-dot busy"></span>Ocupada (tiene reserva en este turno)</span>
+      <span>Pincha una mesa para ver sus reservas, moverlas, sentar un walk-in o reservarla.</span>
     </div>
   </div>
 
@@ -87,6 +89,11 @@
       <button class="btn btn-primary" id="modalSaveBtn">Guardar reserva</button>
     </div>
   </div>
+</div>
+
+<!-- Ficha de mesa: al pinchar una mesa del plano -->
+<div class="modal-backdrop hidden" id="tableSheetBackdrop">
+  <div class="modal table-sheet" id="tableSheet" role="dialog" aria-modal="true"></div>
 </div>
 
 <!-- Modal: mover reserva a otra mesa -->

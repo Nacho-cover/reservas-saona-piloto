@@ -426,7 +426,10 @@ async function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes,
 // have passed between showing them the floor plan and them hitting "confirm". Returns the
 // table rows to book if the choice still holds, or null if it doesn't (caller should ask
 // the customer to pick again rather than silently substituting a different table).
-async function validateChosenTables(restaurantId, dateStr, tableIds, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId) {
+// opts.ignoreCapacity: solo para el personal (mover una reserva o sentar un walk-in en
+// una mesa más pequeña/grande de lo normal, igual que permite Cover con aviso). Nunca se
+// salta la comprobación de que la mesa esté libre.
+async function validateChosenTables(restaurantId, dateStr, tableIds, startMinutes, durationMinutes, partySize, bufferMinutes, excludeReservationId, opts = {}) {
   if (!Array.isArray(tableIds) || !tableIds.length) return null;
   const floorPlanId = await resolveFloorPlanId(restaurantId, dateStr, startMinutes);
   if (!floorPlanId) return null;
@@ -444,6 +447,7 @@ async function validateChosenTables(restaurantId, dateStr, tableIds, startMinute
     if (busy.some(b => overlaps(startMinutes, reqEnd, b.start, b.end))) return null;
   }
 
+  if (opts.ignoreCapacity) return rows;
   const combinedMax = rows.reduce((sum, t) => sum + t.capacity_max, 0);
   if (partySize > combinedMax) return null;
   if (rows.length === 1 && partySize < rows[0].capacity_min) return null;

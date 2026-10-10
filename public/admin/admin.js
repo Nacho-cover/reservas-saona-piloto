@@ -1,7 +1,7 @@
 const RESTAURANT_ID = getRestaurantId(); // getRestaurantId() en authbar.js (selector de local)
 const $ = (id) => document.getElementById(id);
 
-const state = { date: todayISO(), reservations: [], tables: [], closures: [], shift: 'Comida', monthCursor: todayISO().slice(0, 7) };
+const state = { date: todayISO(), reservations: [], tables: [], closures: [], shift: 'Comida', monthCursor: todayISO().slice(0, 7), moveMode: null, sheetTable: null, modalTable: null };
 
 // OJO: nunca usar Date.toISOString() aquí — convierte a UTC, y con la zona horaria
 // de España (UTC+1/+2) eso desplaza la fecha un día hacia atrás. Hay que formatear
@@ -99,15 +99,27 @@ function renderFloorPlanView() {
   shiftReservations.forEach(r => (r.tables || []).forEach(name => tableStatus.set(name, r.status)));
   const busyTableNames = new Set(tableStatus.keys());
 
+  const mv = state.moveMode;
   renderFloorPlan($('floorPlanView'), state.tables, {
     getClass: (t) => {
+      if (mv) {
+        if ((mv.reservation.tables || []).includes(t.name)) return 'fp-source';
+        const st = mv.statusById[t.id];
+        if (st === 'available') return 'fp-target';
+        if (st === 'toosmall') return 'fp-target-warn';
+        return 'fp-dim';
+      }
       const status = tableStatus.get(t.name);
       if (!status) return '';
       return (STATUS_FLOW[status] && STATUS_FLOW[status].color) || 'status-busy';
     },
-    features: SALA_INTERIOR_FEATURES,
-    zoneLabels: SALA_INTERIOR_ZONE_LABELS,
+    // El muro, la escalera y las etiquetas de zona son del plano de Plaza España;
+    // en el resto de locales no se dibujan.
+    features: RESTAURANT_ID === 1 ? SALA_INTERIOR_FEATURES : [],
+    zoneLabels: RESTAURANT_ID === 1 ? SALA_INTERIOR_ZONE_LABELS : [],
+    onClick: (t) => (state.moveMode ? handleMoveTarget(t) : openTableSheet(t)),
   });
+  renderMoveBanner();
 
   // Aforo máximo = suma del máximo de comensales de cada mesa activa del plano del día
   // (no el cupo de aforo por franja, que es más restrictivo y varía por hora).
@@ -205,7 +217,7 @@ function renderRow(r) {
   if (r.status === 'cancelled' && r.cancelled_by) {
     statusText += r.cancelled_by === 'restaurant' ? ' (restaurante)' : ' (cliente)';
   }
-  badge.textContent = r.status === 'confirmed' ? (r.source === 'phone' || r.source === 'admin' ? 'Tel.' : 'Web') : statusText;
+  badge.textContent = r.status === 'confirmed' ? (r.source === 'phone' || r.source === 'admin' ? 'Tel.' : 'Web') : (r.source === 'walkin' && r.status === 'seated' ? 'Walk-in' : statusText);
 
   const actions = document.createElement('div');
   actions.className = 'res-actions';
@@ -246,7 +258,7 @@ async function updateStatus(id, status) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   });
-  loadReservations();
+  await loadReservations();
 }
 
 async function cancelReservation(id, cancelledBy) {
@@ -266,6 +278,191 @@ async function markNoShow(id) {
 }
 
 // --- Modal: cambiar de mesa una reserva ya existente --------------------
+// ===== Ficha de mesa: al pinchar una mesa del plano ===========================
+// Muestra las reservas de esa mesa en el turno elegido (con su siguiente paso y
+// "Mover a otra mesa") y, si se quiere, permite sentar un walk-in o hacer una
+// reserva directamente en esa mesa.
+
+function reservationsForTable(t) {
+  return state.reservations
+    .filter(r => r.status !== 'cancelled' && r.status !== 'no_show' && shiftLabel(r.time) === state.shift
+      && (r.tables || []).includes(t.name))
+    .sort((a, b) => a.time.localeCompare(b.time));
+}
+
+function nowHHMM() {
+  const d = new Date();
+  const m = Math.floor(d.getMinutes() / 5) * 5; // redondeo a 5 min
+  return `${String(d.getHours()).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function openTableSheet(t) {
+  state.sheetTable = t;
+  const list = reservationsForTable(t);
+  const isToday = state.date === todayISO();
+  const sheet = $('tableSheet');
+  const resHtml = list.length ? list.map(r => {
+    const flow = STATUS_FLOW[r.status] || {};
+    const canAct = !['completed', 'cancelled', 'no_show'].includes(r.status);
+    const otherTables = (r.tables || []).filter(n => n !== t.name);
+    return `<div class="ts-res" data-id="${r.id}">
+      <div class="ts-res-top">
+        <div><span class="ts-res-name">${r.time} · ${escapeHtml(r.customer_name)}</span> · ${r.party_size}p</div>
+        <span class="res-badge ${flow.color || ''}">${escapeHtml(STATUS_LABELS[r.status] || r.status)}</span>
+      </div>
+      <div class="ts-res-meta">${r.source === 'walkin' ? 'Walk-in' : (r.phone ? escapeHtml(r.phone) : '')}${otherTables.length ? ' · junto con mesa ' + otherTables.map(escapeHtml).join(', ') : ''}${r.notes ? ' · ' + escapeHtml(r.notes) : ''}</div>
+      ${canAct ? `<div class="ts-res-actions">
+        ${flow.next ? `<button class="primary" data-act="next">${escapeHtml(flow.nextLabel)}</button>` : ''}
+        <button data-act="move">Mover a otra mesa</button>
+      </div>` : ''}
+    </div>`;
+  }).join('') : '<p class="ts-empty">Sin reservas en esta mesa en el turno de ' + escapeHtml(state.shift) + '.</p>';
+
+  const defaultParty = Math.min(Math.max(2, t.capacity_min || 1), t.capacity_max || 2);
+  sheet.innerHTML = `
+    <h2>Mesa ${escapeHtml(t.name)}</h2>
+    <p class="ts-sub">${t.capacity_min}-${t.capacity_max} personas${t.zoneName ? ' · ' + escapeHtml(t.zoneName) : ''} · ${escapeHtml(state.shift)} del ${state.date}</p>
+    <div class="ts-section-title">Reservas en esta mesa</div>
+    ${resHtml}
+    <div class="ts-section-title">Añadir en esta mesa</div>
+    ${isToday ? `<div class="ts-add">
+      <label class="field"><span>Comensales</span><input type="number" id="wiParty" min="1" value="${defaultParty}"></label>
+      <label class="field wide"><span>Nombre (opcional)</span><input type="text" id="wiName" placeholder="Walk-in"></label>
+      <button class="primary" id="wiBtn">Sentar walk-in ahora</button>
+    </div>` : '<p class="ts-empty">Los walk-in solo se pueden sentar en el día de hoy.</p>'}
+    <div class="ts-add" style="margin-top:10px">
+      <button id="tsNewResBtn">+ Nueva reserva en esta mesa</button>
+    </div>
+    <p class="ts-error" id="tsError"></p>
+    <div class="modal-actions"><button class="btn btn-secondary" id="tsCloseBtn">Cerrar</button></div>`;
+
+  sheet.querySelectorAll('.ts-res').forEach(el => {
+    const r = list.find(x => String(x.id) === el.dataset.id);
+    el.querySelector('[data-act="next"]')?.addEventListener('click', async () => {
+      await updateStatus(r.id, STATUS_FLOW[r.status].next);
+      reopenSheet();
+    });
+    el.querySelector('[data-act="move"]')?.addEventListener('click', () => startMove(r));
+  });
+  $('wiBtn')?.addEventListener('click', () => seatWalkIn(t));
+  $('tsNewResBtn').addEventListener('click', () => { closeTableSheet(); openModal(t); });
+  $('tsCloseBtn').addEventListener('click', closeTableSheet);
+  $('tableSheetBackdrop').classList.remove('hidden');
+}
+
+function reopenSheet() {
+  if (!state.sheetTable) return;
+  const t = state.tables.find(x => x.id === state.sheetTable.id) || state.sheetTable;
+  openTableSheet(t);
+}
+
+function closeTableSheet() {
+  $('tableSheetBackdrop').classList.add('hidden');
+  state.sheetTable = null;
+}
+
+// Si los comensales no encajan con la mesa, se pregunta antes (como el aviso de Cover)
+// y se manda force: true para que el servidor no lo rechace por capacidad.
+function confirmCapacity(t, partySize) {
+  if (partySize >= t.capacity_min && partySize <= t.capacity_max) return { ok: true, force: false };
+  const ok = window.confirm(`La mesa ${t.name} es para ${t.capacity_min}-${t.capacity_max} personas y son ${partySize}. ¿Seguir igualmente?`);
+  return { ok, force: ok };
+}
+
+async function seatWalkIn(t) {
+  const partySize = Number($('wiParty').value);
+  if (!partySize || partySize < 1) { $('tsError').textContent = 'Indica cuántos comensales son.'; return; }
+  const cap = confirmCapacity(t, partySize);
+  if (!cap.ok) return;
+  const btn = $('wiBtn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/reservations', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        restaurantId: RESTAURANT_ID, customerName: $('wiName').value.trim() || 'Walk-in',
+        partySize, date: todayISO(), time: nowHHMM(), source: 'walkin', tableIds: [t.id], force: cap.force,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo sentar el walk-in');
+    await loadReservations();
+    reopenSheet();
+  } catch (err) {
+    $('tsError').textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ===== Mover una reserva pinchando la mesa de destino en el plano ===============
+async function startMove(r) {
+  closeTableSheet();
+  const params = new URLSearchParams({
+    restaurantId: RESTAURANT_ID, date: r.date, time: r.time, partySize: r.party_size,
+    excludeReservationId: r.id, durationMinutes: r.duration_minutes,
+  });
+  let statusById = {};
+  try {
+    const res = await fetch(`/api/table-map?${params}`);
+    const map = await res.json();
+    (map.tables || []).forEach(t => { statusById[t.id] = t.status; });
+  } catch { /* sin mapa: todas se intentan y el servidor valida */ }
+  state.moveMode = { reservation: r, statusById, error: '' };
+  renderFloorPlanView();
+  $('moveBanner').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function cancelMove() {
+  state.moveMode = null;
+  renderFloorPlanView();
+}
+
+function renderMoveBanner() {
+  const el = $('moveBanner');
+  const mv = state.moveMode;
+  if (!mv) { el.innerHTML = ''; return; }
+  const r = mv.reservation;
+  el.innerHTML = `<div class="move-banner">
+    <span>Moviendo <b>${escapeHtml(r.customer_name)}</b> (${r.party_size}p, ${r.time}, mesa ${escapeHtml((r.tables || []).join(', ') || '—')}): pincha la mesa de destino. En verde, las libres.</span>
+    <span class="mb-actions">
+      <button id="mbComboBtn">Juntar mesas…</button>
+      <button id="mbCancelBtn">Cancelar</button>
+    </span>
+    <span class="mb-error">${escapeHtml(mv.error || '')}</span>
+  </div>`;
+  $('mbCancelBtn').addEventListener('click', cancelMove);
+  $('mbComboBtn').addEventListener('click', () => { const res = mv.reservation; cancelMove(); openMoveModal(res); });
+}
+
+async function handleMoveTarget(t) {
+  const mv = state.moveMode;
+  if (!mv) return;
+  const r = mv.reservation;
+  if ((r.tables || []).includes(t.name)) { cancelMove(); return; }
+  const st = mv.statusById[t.id];
+  if (st === 'occupied') {
+    mv.error = `La mesa ${t.name} está ocupada a esa hora.`;
+    renderMoveBanner();
+    return;
+  }
+  const cap = confirmCapacity(t, r.party_size);
+  if (!cap.ok) return;
+  try {
+    const res = await fetch(`/api/reservations/${r.id}/table`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tableIds: [t.id], force: cap.force }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo mover la reserva');
+    state.moveMode = null;
+    await loadReservations();
+  } catch (err) {
+    mv.error = err.message;
+    renderMoveBanner();
+  }
+}
+
 let moveReservationId = null;
 
 async function openMoveModal(r) {
@@ -347,8 +544,11 @@ function populateTimeSelect() {
   }
 }
 
-function openModal() {
-  $('modalTitle').textContent = 'Nueva reserva (teléfono)';
+function openModal(table) {
+  // Con mesa (desde la ficha de mesa del plano) la reserva va a esa mesa; sin mesa
+  // se asigna sola, como siempre.
+  state.modalTable = table && table.id ? table : null;
+  $('modalTitle').textContent = state.modalTable ? `Nueva reserva · mesa ${state.modalTable.name}` : 'Nueva reserva (teléfono)';
   $('mName').value = '';
   $('mPhone').value = '';
   $('mDate').value = state.date;
@@ -360,6 +560,7 @@ function openModal() {
 }
 function closeModal() {
   $('modalBackdrop').classList.add('hidden');
+  state.modalTable = null;
 }
 
 async function saveModal() {
@@ -375,6 +576,14 @@ async function saveModal() {
     return;
   }
 
+  const t = state.modalTable;
+  let tablePart = {};
+  if (t) {
+    const cap = confirmCapacity(t, partySize);
+    if (!cap.ok) return;
+    tablePart = { tableIds: [t.id], force: cap.force };
+  }
+
   const btn = $('modalSaveBtn');
   btn.disabled = true;
   try {
@@ -382,7 +591,7 @@ async function saveModal() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        restaurantId: RESTAURANT_ID, customerName, phone, partySize, date, time, notes, source: 'phone',
+        restaurantId: RESTAURANT_ID, customerName, phone, partySize, date, time, notes, source: 'phone', ...tablePart,
       }),
     });
     const data = await res.json();
@@ -490,11 +699,17 @@ window.addEventListener('DOMContentLoaded', async () => {
     loadReservations();
   });
 
-  $('openNewBtn').addEventListener('click', openModal);
+  $('openNewBtn').addEventListener('click', () => openModal());
   $('modalCancelBtn').addEventListener('click', closeModal);
   $('modalSaveBtn').addEventListener('click', saveModal);
 
   $('moveModalCancelBtn').addEventListener('click', closeMoveModal);
+  $('tableSheetBackdrop').addEventListener('click', (e) => { if (e.target.id === 'tableSheetBackdrop') closeTableSheet(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!$('tableSheetBackdrop').classList.contains('hidden')) closeTableSheet();
+    else if (state.moveMode) cancelMove();
+  });
   $('moveModalSaveBtn').addEventListener('click', saveMoveModal);
 
   $('monthViewBtn').addEventListener('click', openMonthView);

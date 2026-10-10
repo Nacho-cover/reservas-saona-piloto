@@ -102,3 +102,13 @@
   padding: 6px 12px; font-size: 12.5px; color: var(--text-muted);
 }
 .fp-zone-stat b { color: var(--text); }
+
+/* Panel de reservas: mesas pinchables (ficha de mesa) y modo "mover reserva". */
+.fp-table.fp-clickable { cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+.fp-table.fp-clickable:hover, .fp-table.fp-clickable:focus-visible { transform: translate(-50%, -50%) scale(1.07); box-shadow: 0 4px 12px rgba(21,43,78,0.25); outline: none; z-index: 4; }
+.fp-table.fp-source { outline: 3px solid var(--brand); outline-offset: 3px; }
+.fp-table.fp-target { background: #fff; border: 3px solid #2e7d32; color: var(--text); box-shadow: 0 0 0 4px rgba(46,125,50,0.15); }
+.fp-table.fp-target .fp-cap { color: var(--text-muted); }
+.fp-table.fp-target-warn { background: #fff; border: 3px dashed #b8860b; color: var(--text); }
+.fp-table.fp-target-warn .fp-cap { color: var(--text-muted); }
+.fp-table.fp-dim { opacity: 0.35; }

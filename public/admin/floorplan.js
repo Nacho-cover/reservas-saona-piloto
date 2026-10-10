@@ -22,6 +22,7 @@ function renderFloorPlan(container, tables, opts = {}) {
   // [{ x, y, w, h, label }], todo en % del lienzo. Pendiente de coordenadas reales.
   // opts.editable: si es true, las mesas se pueden arrastrar (llama a opts.onMove(table,
   // x, y) al soltar) y un clic simple (sin arrastrar) llama a opts.onClick(table).
+  // Sin editable, opts.onClick(table) se llama al pinchar la mesa (panel de reservas).
   const { getClass, features = [], zoneLabels = [], editable = false, onMove, onClick } = opts;
   container.innerHTML = '';
   const withPos = tables.filter(t => t.pos_x != null && t.pos_y != null);
@@ -68,6 +69,13 @@ function renderFloorPlan(container, tables, opts = {}) {
     node.appendChild(nameEl);
     node.appendChild(capEl);
     if (editable) attachDrag(node, canvas, t, { onMove, onClick });
+    else if (onClick) {
+      node.classList.add('fp-clickable');
+      node.tabIndex = 0;
+      node.setAttribute('role', 'button');
+      node.addEventListener('click', () => onClick(t));
+      node.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(t); } });
+    }
     canvas.appendChild(node);
   }
   scroll.appendChild(canvas);
