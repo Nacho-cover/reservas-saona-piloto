@@ -220,6 +220,9 @@ async function initDb() {
     -- Plano de sala de cada turno (p. ej. Comida entre semana = "Máximos", Cena = "Mínimos").
     -- NULL = el plano por defecto del local. La agenda por fecha sigue teniendo prioridad.
     ALTER TABLE shifts ADD COLUMN IF NOT EXISTS floor_plan_id INTEGER REFERENCES floor_plans(id);
+    -- Plano de sala de un turno en una fecha concreta (excepción por fecha). NULL = el
+    -- plano del turno semanal. Se rellena al copiar de Cover los cambios Mínimos/Máximos.
+    ALTER TABLE shift_date_overrides ADD COLUMN IF NOT EXISTS floor_plan_id INTEGER REFERENCES floor_plans(id);
 
     -- Claves de la API de integración (/api/v1). Solo se guarda el sha256 de la
     -- clave; key_prefix (primeros caracteres) sirve para reconocerla en el panel.

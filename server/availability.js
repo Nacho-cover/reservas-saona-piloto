@@ -28,8 +28,12 @@ async function getShiftsForDate(restaurantId, dateStr) {
 
   const overrideByName = {};
   overrides.forEach(o => { overrideByName[o.shift_name] = o; });
+  // La excepción puede traer también su propio plano de sala (floor_plan_id), como en
+  // Cover, donde el plano de un turno cambia en fechas sueltas (fines de semana de
+  // octubre en "Mínimos", puentes en "Máximos"...). NULL = el plano del turno semanal.
   const merged = base.map(s => overrideByName[s.name]
-    ? { ...s, start_time: overrideByName[s.name].start_time, end_time: overrideByName[s.name].end_time }
+    ? { ...s, start_time: overrideByName[s.name].start_time, end_time: overrideByName[s.name].end_time,
+        floor_plan_id: overrideByName[s.name].floor_plan_id || s.floor_plan_id }
     : s);
   // Excepción para un turno que ese día de la semana no tiene plantilla (caso raro) —
   // se añade igualmente, con desfase de última entrada 0 por defecto.
@@ -37,7 +41,7 @@ async function getShiftsForDate(restaurantId, dateStr) {
     if (!merged.some(s => s.name === name)) {
       merged.push({ id: null, restaurant_id: restaurantId, day_of_week: dow, name,
         start_time: overrideByName[name].start_time, end_time: overrideByName[name].end_time,
-        last_seating_offset_minutes: 0 });
+        last_seating_offset_minutes: 0, floor_plan_id: overrideByName[name].floor_plan_id || null });
     }
   }
   return merged;
@@ -136,7 +140,9 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 // igual que en Cover, donde p. ej. Balboa usa "Máximos" en las comidas entre semana y
 // "Mínimos" en las cenas. Orden de prioridad:
 //   1) plano asignado a esa fecha en la agenda (lo fija el personal a mano),
-//   2) plano del turno en que cae la hora (si se conoce la hora: `minutes`),
+//   2) plano del turno en que cae la hora (si se conoce la hora: `minutes`): el de la
+//      excepción de esa fecha (shift_date_overrides.floor_plan_id) o, si no tiene, el
+//      del turno semanal,
 //   3) plano por defecto del local.
 async function resolveFloorPlanId(restaurantId, dateStr, minutes = null) {
   const { rows: scheduledRows } = await db.query(
