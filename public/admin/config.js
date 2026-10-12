@@ -301,7 +301,7 @@ async function savePlan() {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
-  if (!(await guardAdminPage())) return;
+  if (!(await guardAdminPage('floorplans'))) return;
   renderSessionBar($('sessionBar'));
   renderRestaurantBar($('restaurantBar'));
 

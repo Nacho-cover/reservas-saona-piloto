@@ -12,7 +12,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 // transacciones (6543), y funciona por IPv4 (Render no soporta IPv6 saliente).
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  // DB_SSL=disable solo para pruebas con un Postgres local sin SSL.
+  ssl: process.env.DB_SSL === 'disable' ? false : { rejectUnauthorized: false },
 });
 
 // Crea las tablas (si no existen) y aplica migraciones. Postgres soporta
@@ -261,6 +262,45 @@ async function initDb() {
     const hash = crypto.scryptSync(initialPassword, salt, 64).toString('hex');
     await pool.query('INSERT INTO admin_credentials (username, password_hash) VALUES ($1, $2)',
       [username, `${salt}:${hash}`]);
+  }
+
+  // Usuarios del panel (uno por persona) con rol y locales asignados — ver
+  // server/permissions.js. Sustituye a admin_credentials (usuario compartido), que se
+  // deja como estaba pero ya no se usa para entrar.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT,
+      role TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT true,
+      must_change_password BOOLEAN NOT NULL DEFAULT false,
+      created_at TEXT NOT NULL DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+      last_login_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS user_restaurants (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      restaurant_id INTEGER NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+      PRIMARY KEY (user_id, restaurant_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_restaurants_restaurant ON user_restaurants(restaurant_id);
+  `);
+  // Primer arranque con usuarios: el usuario compartido de admin_credentials pasa a ser
+  // el primer Administrador, con su misma contraseña. Si seguía con la contraseña por
+  // defecto antigua ("123456"), se le obliga a cambiarla al entrar.
+  const { rows: userCount } = await pool.query('SELECT COUNT(*)::int AS count FROM users');
+  if (userCount[0].count === 0) {
+    const crypto = require('crypto');
+    const { rows: creds } = await pool.query('SELECT username, password_hash FROM admin_credentials ORDER BY id');
+    for (const c of creds) {
+      const [salt, hash] = c.password_hash.split(':');
+      const isDefault = crypto.scryptSync('123456', salt, 64).toString('hex') === hash;
+      await pool.query(
+        `INSERT INTO users (email, name, role, password_hash, must_change_password)
+         VALUES ($1, $2, 'admin', $3, $4) ON CONFLICT (email) DO NOTHING`,
+        [c.username.trim().toLowerCase(), null, c.password_hash, isDefault]);
+    }
   }
 
   // Claves de API creadas antes de existir la tabla api_keys (guardadas en app_secrets

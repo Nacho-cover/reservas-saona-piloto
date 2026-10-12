@@ -144,8 +144,19 @@
     }
   }
 
+  // Solo para usuarios que gestionan la API (Administrador): se espera a que authbar.js
+  // haya cargado el usuario (CURRENT_USER) antes de decidir.
   window.addEventListener('DOMContentLoaded', () => {
     if (!$('apiCard')) return;
+    const waitUser = setInterval(() => {
+      if (!CURRENT_USER) return;
+      clearInterval(waitUser);
+      if (hasPerm('users')) init();
+    }, 100);
+    setTimeout(() => clearInterval(waitUser), 30000);
+  });
+
+  function init() {
     $('apiPreviewClose').addEventListener('click', () => $('apiPreview').classList.add('hidden'));
     $('apiKeyForm').addEventListener('submit', createKey);
     $('apiKeyNewCopy').addEventListener('click', async (e) => {
@@ -159,5 +170,5 @@
     }, 200);
     setTimeout(() => clearInterval(wait), 30000);
     loadKeys();
-  });
+  }
 })();

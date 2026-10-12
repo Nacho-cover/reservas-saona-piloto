@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usuarios – Panel de personal</title>
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/admin/config.css">
+<link rel="stylesheet" href="/admin/usuarios.css">
+</head>
+<body>
+<div class="admin">
+  <header class="admin-topbar">
+    <div>
+      <div class="admin-title">Usuarios</div>
+      <div class="admin-sub">Quién entra al panel, con qué rol y en qué locales</div>
+    </div>
+    <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap">
+      <div id="sessionBar"></div>
+      <a class="btn btn-secondary" href="/admin/">&larr; Volver a reservas</a>
+    </div>
+  </header>
+
+  <section class="cfg-card">
+    <div class="cfg-card-header">
+      <h2>Usuarios del panel</h2>
+      <button class="btn btn-primary" type="button" id="newUserBtn">+ Nuevo usuario</button>
+    </div>
+    <div class="users-toolbar">
+      <input type="search" id="userSearch" placeholder="Buscar por nombre, correo o local">
+      <select id="roleFilter"><option value="">Todos los roles</option></select>
+      <label class="users-inactive-toggle"><input type="checkbox" id="showInactive"> Ver desactivados</label>
+    </div>
+    <div id="usersList" class="users-list"></div>
+  </section>
+
+  <section class="cfg-card">
+    <div class="cfg-card-header"><h2>Qué puede hacer cada rol</h2></div>
+    <p class="cfg-hint">Los roles son fijos. El Administrador ve todos los locales; el resto, solo los que tenga asignados.</p>
+    <div class="roles-matrix-wrap"><table class="roles-matrix" id="rolesMatrix"></table></div>
+  </section>
+</div>
+
+<!-- Alta / edición -->
+<div class="modal-backdrop hidden" id="userModal">
+  <div class="modal user-modal">
+    <h2 id="userModalTitle">Nuevo usuario</h2>
+    <label class="field"><span>Correo (con él entra al panel)</span><input type="email" id="uEmail" autocomplete="off"></label>
+    <label class="field" style="margin-top:10px"><span>Nombre</span><input type="text" id="uName" autocomplete="off" placeholder="Nombre y apellido"></label>
+    <label class="field" style="margin-top:10px"><span>Rol</span><select id="uRole" class="u-select"></select></label>
+    <p class="cfg-hint" id="uRoleHint"></p>
+
+    <div id="uLocalesBox">
+      <div class="u-locales-head">
+        <span>Locales <strong id="uLocalesCount">0</strong></span>
+        <span class="u-locales-actions">
+          <button class="btn-link" type="button" id="uSelectVisible">Marcar los que se ven</button>
+          <button class="btn-link" type="button" id="uClearAll">Quitar todos</button>
+        </span>
+      </div>
+      <input type="search" id="uLocalesSearch" placeholder="Buscar local (p. ej. Valencia)">
+      <div class="u-locales" id="uLocales"></div>
+    </div>
+
+    <label class="u-active hidden" id="uActiveRow"><input type="checkbox" id="uActive"> Usuario activo (puede entrar)</label>
+    <p class="error" id="userError"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" type="button" id="userCancelBtn">Cancelar</button>
+      <button class="btn btn-primary" type="button" id="userSaveBtn">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Contraseña provisional (se muestra una sola vez) -->
+<div class="modal-backdrop hidden" id="pwdModal">
+  <div class="modal">
+    <h2>Contraseña provisional</h2>
+    <p class="cfg-hint" id="pwdText"></p>
+    <div class="api-copy-row"><input type="text" id="pwdValue" readonly><button class="btn btn-secondary" type="button" id="pwdCopy">Copiar</button></div>
+    <p class="cfg-hint" style="margin-top:12px">Solo se muestra ahora. Al entrar por primera vez el panel le pedirá elegir su propia contraseña. Si se pierde, usa «Nueva contraseña» para generar otra.</p>
+    <div class="modal-actions"><button class="btn btn-primary" type="button" id="pwdClose">Hecho</button></div>
+  </div>
+</div>
+
+<script src="/admin/authbar.js"></script>
+<script src="/admin/usuarios.js"></script>
+</body>
+</html>

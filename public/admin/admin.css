@@ -144,6 +144,9 @@ button, input, select, textarea { font-family: inherit; }
 .session-bar { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-muted); }
 .session-bar .btn-link { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 13px; padding: 0; }
 .session-bar .btn-link:hover { text-decoration: underline; }
+.session-bar { flex-wrap: wrap; }
+.session-bar a.btn-link { text-decoration: none; }
+.session-user { color: var(--text); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Selector de local (multi-restaurante) en el topbar de staff — ver authbar.js */
 .restaurant-select {

@@ -5,6 +5,8 @@ const dayjs = require('dayjs');
 const db = require('./db');
 const availability = require('./availability');
 const adminAuth = require('./adminAuth');
+const perms = require('./permissions');
+const { can, ownsRow } = adminAuth;
 const { sendConfirmationEmail } = require('./email');
 const { verifySurveyToken, sendSurveyEmail } = require('./survey');
 
@@ -31,20 +33,64 @@ async function requireRestaurant(req, res, next) {
   const id = Number(req.params.restaurantId || req.query.restaurantId || req.body.restaurantId || 1);
   const r = await getRestaurant(id);
   if (!r) return res.status(404).json({ error: 'Restaurante no encontrado' });
+  // En rutas del panel (req.user ya puesto por can()/requireSession), el usuario solo
+  // puede trabajar con los locales que tiene asignados.
+  if (req.user && !perms.canAccessRestaurant(req.user, r.id)) {
+    return res.status(403).json({ error: 'No tienes acceso a este local.' });
+  }
   req.restaurant = r;
   next();
 }
 
-// --- Autenticación del panel de personal (usuario/contraseña compartidos) -----
+// Al crear zonas, mesas o combinaciones, el plano indicado tiene que ser del mismo
+// local (si no, alguien con acceso a un local podría tocar el plano de otro).
+async function planOfRestaurant(req, res, next) {
+  const planId = Number(req.body.floorPlanId);
+  if (!planId) return next(); // la ruta ya responde 400 si falta
+  const { rows } = await db.query('SELECT 1 FROM floor_plans WHERE id = $1 AND restaurant_id = $2', [planId, req.restaurant.id]);
+  if (!rows.length) return res.status(400).json({ error: 'Ese plano no es de este local.' });
+  next();
+}
+
+// Datos del usuario que se mandan al panel (nunca el hash de la contraseña).
+async function describeUser(user) {
+  const role = perms.roleOf(user);
+  const ids = perms.allowedRestaurantIds(user);
+  const { rows: restaurants } = ids === null
+    ? await db.query('SELECT id, name FROM restaurants ORDER BY name')
+    : await db.query('SELECT id, name FROM restaurants WHERE id = ANY($1::int[]) ORDER BY name', [ids]);
+  return {
+    user: {
+      id: user.id, email: user.email, name: user.name, role: user.role,
+      roleLabel: role ? role.label : user.role, mustChangePassword: !!user.must_change_password,
+    },
+    permissions: role ? role.permissions : [],
+    allRestaurants: ids === null,
+    restaurants,
+  };
+}
+
+// --- Autenticación del panel de personal (un usuario por persona) -----------
+// Intentos fallidos por email, para frenar que alguien pruebe contraseñas a lo bruto.
+const failedLogins = new Map(); // email -> { count, until }
 app.post('/api/admin/login', async (req, res) => {
-  const { username, password } = req.body;
-  const cred = await adminAuth.getCredential();
-  if (!cred || !username || !password || username.trim().toLowerCase() !== cred.username.toLowerCase() ||
-      !adminAuth.verifyPassword(password, cred.password_hash)) {
-    return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
+  const email = String(req.body.username || req.body.email || '').trim().toLowerCase();
+  const password = req.body.password;
+  const f = failedLogins.get(email);
+  if (f && f.until > Date.now()) {
+    return res.status(429).json({ error: 'Demasiados intentos. Espera unos minutos y vuelve a probar.' });
   }
-  adminAuth.setSessionCookie(res, adminAuth.createSession());
-  res.json({ ok: true });
+  const { rows } = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+  const user = rows[0];
+  if (!user || !user.active || !adminAuth.verifyPassword(password, user.password_hash)) {
+    const count = (f && f.until <= Date.now() ? 0 : (f ? f.count : 0)) + 1;
+    failedLogins.set(email, { count, until: count >= 8 ? Date.now() + 10 * 60 * 1000 : 0 });
+    return res.status(401).json({ error: user && !user.active ? 'Este usuario está desactivado.' : 'Usuario o contraseña incorrectos.' });
+  }
+  failedLogins.delete(email);
+  await db.query("UPDATE users SET last_login_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1", [user.id]);
+  adminAuth.setSessionCookie(res, adminAuth.createSession(user.id));
+  res.json({ ok: true, mustChangePassword: !!user.must_change_password });
 });
 
 app.post('/api/admin/logout', (req, res) => {
@@ -53,23 +99,36 @@ app.post('/api/admin/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/admin/session', (req, res) => {
-  res.json({ authenticated: adminAuth.isValidSession(adminAuth.parseCookies(req).admin_session) });
+app.get('/api/admin/session', async (req, res) => {
+  const user = await adminAuth.getSessionUser(req);
+  res.json({ authenticated: !!user, mustChangePassword: !!(user && user.must_change_password) });
 });
 
-app.post('/api/admin/change-password', adminAuth.requireAdminAuth, async (req, res) => {
+// Quién soy: usuario, rol, permisos y locales a los que tengo acceso (para el panel).
+app.get('/api/admin/me', adminAuth.requireSession({ allowMustChange: true }), async (req, res) => {
+  res.json(await describeUser(req.user));
+});
+
+app.post('/api/admin/change-password', adminAuth.requireSession({ allowMustChange: true }), async (req, res) => {
   const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword || newPassword.length < 6) {
-    return res.status(400).json({ error: 'La contraseña nueva debe tener al menos 6 caracteres.' });
+  if (!currentPassword || !newPassword || newPassword.length < 8) {
+    return res.status(400).json({ error: 'La contraseña nueva debe tener al menos 8 caracteres.' });
   }
-  const cred = await adminAuth.getCredential();
-  if (!adminAuth.verifyPassword(currentPassword, cred.password_hash)) {
+  if (newPassword === currentPassword) {
+    return res.status(400).json({ error: 'La contraseña nueva tiene que ser distinta de la actual.' });
+  }
+  const { rows } = await db.query('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
+  if (!rows.length || !adminAuth.verifyPassword(currentPassword, rows[0].password_hash)) {
     return res.status(400).json({ error: 'La contraseña actual no es correcta.' });
   }
-  await db.query('UPDATE admin_credentials SET password_hash = $1, updated_at = $2 WHERE id = $3',
-    [adminAuth.hashPassword(newPassword), dayjs().format('YYYY-MM-DD HH:mm:ss'), cred.id]);
+  await db.query('UPDATE users SET password_hash = $1, must_change_password = false WHERE id = $2',
+    [adminAuth.hashPassword(newPassword), req.user.id]);
+  adminAuth.invalidateUser(req.user.id);
   res.json({ ok: true });
 });
+
+// Gestión de usuarios (solo Administrador) — ver server/usersApi.js.
+app.use('/api/admin/users', require('./usersApi'));
 
 // --- Public: restaurant info -------------------------------------------
 // Lista de locales para el selector (web de cliente y panel de staff) — de
@@ -140,8 +199,12 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
     return res.status(400).json({ error: 'Origen de reserva no válido.' });
   }
   if (isStaffBooking) {
-    const { admin_session: token } = adminAuth.parseCookies(req);
-    if (!adminAuth.isValidSession(token)) return res.status(401).json({ error: 'No has iniciado sesión.' });
+    const staff = await adminAuth.getSessionUser(req);
+    if (!staff) return res.status(401).json({ error: 'No has iniciado sesión.' });
+    if (staff.must_change_password) return res.status(403).json({ error: 'Tienes que cambiar la contraseña provisional antes de seguir.', mustChangePassword: true });
+    if (!perms.hasPermission(staff, 'reservations') || !perms.canAccessRestaurant(staff, restaurant.id)) {
+      return res.status(403).json({ error: 'No tienes acceso a este local.' });
+    }
   }
   const isWalkIn = bookingSource === 'walkin';
   // El personal puede forzar una mesa aunque no encaje por capacidad (con aviso en el panel).
@@ -269,7 +332,7 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
 });
 
 // --- Reservations: list (admin) ------------------------------------------
-app.get('/api/reservations', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/reservations', can('reservations'), requireRestaurant, async (req, res) => {
   const { date } = req.query;
   let rows;
   if (date) {
@@ -296,7 +359,7 @@ app.get('/api/reservations', adminAuth.requireAdminAuth, requireRestaurant, asyn
 
 // Resumen por día (para la vista mensual) — cuántas reservas y comensales hay cada
 // día en un rango, sin traer el detalle completo de cada reserva.
-app.get('/api/reservations/summary', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/reservations/summary', can('reservations'), requireRestaurant, async (req, res) => {
   const { from, to } = req.query;
   if (!from || !to) return res.status(400).json({ error: 'from y to son obligatorios' });
   const { rows } = await db.query(`
@@ -309,7 +372,7 @@ app.get('/api/reservations/summary', adminAuth.requireAdminAuth, requireRestaura
 });
 
 // --- Reservations: update status (admin) ---------------------------------
-app.patch('/api/reservations/:id', adminAuth.requireAdminAuth, async (req, res) => {
+app.patch('/api/reservations/:id', can('reservations'), ownsRow('reservations'), async (req, res) => {
   const { status, notes, cancelledBy } = req.body;
   const allowed = ['confirmed', 'seated', 'eating', 'dessert', 'paid', 'completed', 'cancelled', 'no_show'];
   const { rows: existingRows } = await db.query('SELECT * FROM reservations WHERE id = $1', [req.params.id]);
@@ -344,7 +407,7 @@ app.patch('/api/reservations/:id', adminAuth.requireAdminAuth, async (req, res) 
 });
 
 // --- Reservations: delete/cancel ------------------------------------------
-app.delete('/api/reservations/:id', adminAuth.requireAdminAuth, async (req, res) => {
+app.delete('/api/reservations/:id', can('reservations'), ownsRow('reservations'), async (req, res) => {
   const { rows: existingRows } = await db.query('SELECT * FROM reservations WHERE id = $1', [req.params.id]);
   if (!existingRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
   await db.query(`UPDATE reservations SET status = 'cancelled',
@@ -353,7 +416,7 @@ app.delete('/api/reservations/:id', adminAuth.requireAdminAuth, async (req, res)
 });
 
 // --- Reservations: move to a different table/combo (admin) -----------------
-app.patch('/api/reservations/:id/table', adminAuth.requireAdminAuth, async (req, res) => {
+app.patch('/api/reservations/:id/table', can('reservations'), ownsRow('reservations'), async (req, res) => {
   const { tableIds, force } = req.body;
   if (!Array.isArray(tableIds) || !tableIds.length) {
     return res.status(400).json({ error: 'Elige una mesa.' });
@@ -395,7 +458,7 @@ app.patch('/api/reservations/:id/table', adminAuth.requireAdminAuth, async (req,
 // La reserva A pasa a las mesas de B y B a las de A (como "intercambiar" en Cover).
 // Se comprueba que ninguna de las dos choque con otras reservas en sus mesas nuevas;
 // la capacidad no se comprueba (el panel ya avisa si no encaja y el personal decide).
-app.post('/api/reservations/swap', adminAuth.requireAdminAuth, async (req, res) => {
+app.post('/api/reservations/swap', can('reservations'), async (req, res) => {
   const idA = Number(req.body.reservationIdA);
   const idB = Number(req.body.reservationIdB);
   if (!idA || !idB || idA === idB) return res.status(400).json({ error: 'Indica las dos reservas a intercambiar.' });
@@ -403,6 +466,9 @@ app.post('/api/reservations/swap', adminAuth.requireAdminAuth, async (req, res) 
   const a = rows.find(r => r.id === idA);
   const b = rows.find(r => r.id === idB);
   if (!a || !b) return res.status(404).json({ error: 'Reserva no encontrada' });
+  if (!perms.canAccessRestaurant(req.user, a.restaurant_id) || !perms.canAccessRestaurant(req.user, b.restaurant_id)) {
+    return res.status(403).json({ error: 'No tienes acceso a este local.' });
+  }
   if (a.restaurant_id !== b.restaurant_id || a.date !== b.date) {
     return res.status(400).json({ error: 'Solo se pueden intercambiar reservas del mismo local y día.' });
   }
@@ -436,7 +502,7 @@ app.post('/api/reservations/swap', adminAuth.requireAdminAuth, async (req, res) 
 // La plantilla semanal: un turno (p. ej. "Comida") tiene un horario por día de la
 // semana. "Todos los días" en el panel simplemente llama a esta ruta 7 veces (una
 // por day_of_week), no es un concepto aparte en la base de datos.
-app.get('/api/shifts', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/shifts', can('reservations'), requireRestaurant, async (req, res) => {
   const { rows } = await db.query(`
     SELECT s.*, fp.name AS floor_plan_name FROM shifts s
     LEFT JOIN floor_plans fp ON fp.id = s.floor_plan_id
@@ -446,7 +512,7 @@ app.get('/api/shifts', adminAuth.requireAdminAuth, requireRestaurant, async (req
 
 // Crea o actualiza el turno de un día de la semana concreto (mismo nombre +
 // mismo day_of_week = se actualiza en vez de duplicarse).
-app.post('/api/shifts', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.post('/api/shifts', can('schedule'), requireRestaurant, async (req, res) => {
   const { name, dayOfWeek, startTime, endTime, lastSeatingOffsetMinutes } = req.body;
   if (!name || dayOfWeek == null || !startTime || !endTime) {
     return res.status(400).json({ error: 'name, dayOfWeek, startTime y endTime son obligatorios' });
@@ -484,7 +550,7 @@ app.post('/api/shifts', adminAuth.requireAdminAuth, requireRestaurant, async (re
 
 // Quita ese turno de ese día de la semana por completo (no hay servicio ese día,
 // de forma recurrente — distinto de "closures", que es un cierre puntual de fecha).
-app.delete('/api/shifts/:id', adminAuth.requireAdminAuth, async (req, res) => {
+app.delete('/api/shifts/:id', can('schedule'), ownsRow('shifts'), async (req, res) => {
   await db.query('DELETE FROM shifts WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
@@ -492,7 +558,7 @@ app.delete('/api/shifts/:id', adminAuth.requireAdminAuth, async (req, res) => {
 // --- Excepciones de horario por fecha concreta -------------------------------
 // El turno sigue abierto, solo con otro horario ese día (no confundir con un
 // cierre — ver "closures" más abajo).
-app.get('/api/shift-date-overrides', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/shift-date-overrides', can('reservations'), requireRestaurant, async (req, res) => {
   const { from, to } = req.query;
   if (!from || !to) return res.status(400).json({ error: 'from y to son obligatorios' });
   const { rows } = await db.query(
@@ -505,7 +571,7 @@ app.get('/api/shift-date-overrides', adminAuth.requireAdminAuth, requireRestaura
 // Body: { dates: ['2026-08-25', ...], shiftName, startTime, endTime } — "Entre dos
 // fechas" y "Días específicos" del panel expanden a una lista de fechas en el
 // propio navegador antes de llamar aquí; esta ruta solo hace upsert fecha a fecha.
-app.post('/api/shift-date-overrides', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.post('/api/shift-date-overrides', can('closures'), requireRestaurant, async (req, res) => {
   const { dates, shiftName, startTime, endTime } = req.body;
   if (!Array.isArray(dates) || !dates.length || !shiftName || !startTime || !endTime) {
     return res.status(400).json({ error: 'dates (lista), shiftName, startTime y endTime son obligatorios' });
@@ -523,20 +589,20 @@ app.post('/api/shift-date-overrides', adminAuth.requireAdminAuth, requireRestaur
   res.status(201).json(saved);
 });
 
-app.delete('/api/shift-date-overrides/:id', adminAuth.requireAdminAuth, async (req, res) => {
+app.delete('/api/shift-date-overrides/:id', can('closures'), ownsRow('shift_date_overrides'), async (req, res) => {
   await db.query('DELETE FROM shift_date_overrides WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
 
 // --- Cierres (día entero o un turno concreto) ---------------------------------
-app.get('/api/closures', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/closures', can('reservations'), requireRestaurant, async (req, res) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ error: 'date es obligatorio' });
   const { rows } = await db.query('SELECT * FROM closures WHERE restaurant_id = $1 AND date = $2', [req.restaurant.id, date]);
   res.json(rows);
 });
 
-app.post('/api/closures', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.post('/api/closures', can('closures'), requireRestaurant, async (req, res) => {
   const { date, shift, note } = req.body;
   if (!date) return res.status(400).json({ error: 'date es obligatorio' });
   const { rows } = await db.query('INSERT INTO closures (restaurant_id, date, shift, note) VALUES ($1,$2,$3,$4) RETURNING *',
@@ -544,7 +610,7 @@ app.post('/api/closures', adminAuth.requireAdminAuth, requireRestaurant, async (
   res.status(201).json(rows[0]);
 });
 
-app.delete('/api/closures/:id', adminAuth.requireAdminAuth, async (req, res) => {
+app.delete('/api/closures/:id', can('closures'), ownsRow('closures'), async (req, res) => {
   await db.query('DELETE FROM closures WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
@@ -559,7 +625,7 @@ app.delete('/api/closures/:id', adminAuth.requireAdminAuth, async (req, res) => 
 // una fecha dada.
 
 // --- Floor plans -----------------------------------------------------------
-app.get('/api/floor-plans', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/floor-plans', can('reservations'), requireRestaurant, async (req, res) => {
   const { rows: plans } = await db.query('SELECT * FROM floor_plans WHERE restaurant_id = $1 ORDER BY is_default DESC, name', [req.restaurant.id]);
   const { rows: counts } = await db.query(
     'SELECT floor_plan_id, COUNT(*)::int AS c FROM tables WHERE restaurant_id = $1 AND active = 1 GROUP BY floor_plan_id',
@@ -570,7 +636,7 @@ app.get('/api/floor-plans', adminAuth.requireAdminAuth, requireRestaurant, async
   res.json(plans.map(p => ({ ...p, tableCount: countByPlan[p.id] || 0 })));
 });
 
-app.post('/api/floor-plans', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.post('/api/floor-plans', can('floorplans'), requireRestaurant, async (req, res) => {
   const { name, cloneFromId } = req.body;
   if (!name) return res.status(400).json({ error: 'name es obligatorio' });
   const restaurant = req.restaurant;
@@ -629,7 +695,7 @@ app.post('/api/floor-plans', adminAuth.requireAdminAuth, requireRestaurant, asyn
   res.status(201).json(rows[0]);
 });
 
-app.patch('/api/floor-plans/:id', adminAuth.requireAdminAuth, async (req, res) => {
+app.patch('/api/floor-plans/:id', can('floorplans'), ownsRow('floor_plans'), async (req, res) => {
   const { rows: planRows } = await db.query('SELECT * FROM floor_plans WHERE id = $1', [req.params.id]);
   const plan = planRows[0];
   if (!plan) return res.status(404).json({ error: 'Plano no encontrado' });
@@ -647,7 +713,7 @@ app.patch('/api/floor-plans/:id', adminAuth.requireAdminAuth, async (req, res) =
 });
 
 // --- Agenda: qué plano aplica cada fecha ------------------------------------
-app.get('/api/floor-plan-schedule', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/floor-plan-schedule', can('reservations'), requireRestaurant, async (req, res) => {
   const { from, to } = req.query;
   let rows;
   if (from && to) {
@@ -661,7 +727,7 @@ app.get('/api/floor-plan-schedule', adminAuth.requireAdminAuth, requireRestauran
 
 // Asigna (o reasigna) qué plano aplica un día concreto. No modifica ninguna reserva
 // ya existente para esa fecha: solo cambia qué mesas se ofrecen para reservas NUEVAS.
-app.put('/api/floor-plan-schedule', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.put('/api/floor-plan-schedule', can('floorplans'), requireRestaurant, async (req, res) => {
   const { date, floorPlanId } = req.body;
   if (!date || !floorPlanId) return res.status(400).json({ error: 'date y floorPlanId son obligatorios' });
   const { rows: planRows } = await db.query('SELECT * FROM floor_plans WHERE id = $1 AND restaurant_id = $2', [floorPlanId, req.restaurant.id]);
@@ -676,7 +742,7 @@ app.put('/api/floor-plan-schedule', adminAuth.requireAdminAuth, requireRestauran
 });
 
 // Quita la asignación específica de un día: ese día vuelve a usar el plano por defecto.
-app.delete('/api/floor-plan-schedule', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.delete('/api/floor-plan-schedule', can('floorplans'), requireRestaurant, async (req, res) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ error: 'date es obligatorio' });
   await db.query('DELETE FROM floor_plan_schedule WHERE restaurant_id = $1 AND date = $2', [req.restaurant.id, date]);
@@ -684,7 +750,7 @@ app.delete('/api/floor-plan-schedule', adminAuth.requireAdminAuth, requireRestau
 });
 
 // --- Zonas -------------------------------------------------------------------
-app.get('/api/zones', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/zones', can('reservations'), requireRestaurant, async (req, res) => {
   const { floorPlanId } = req.query;
   if (!floorPlanId) return res.status(400).json({ error: 'floorPlanId es obligatorio' });
   const { rows } = await db.query('SELECT * FROM zones WHERE restaurant_id = $1 AND floor_plan_id = $2 ORDER BY sort_order, name',
@@ -692,7 +758,7 @@ app.get('/api/zones', adminAuth.requireAdminAuth, requireRestaurant, async (req,
   res.json(rows);
 });
 
-app.post('/api/zones', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.post('/api/zones', can('floorplans'), requireRestaurant, planOfRestaurant, async (req, res) => {
   const { floorPlanId, name, sortOrder } = req.body;
   if (!floorPlanId || !name) return res.status(400).json({ error: 'floorPlanId y name son obligatorios' });
   const { rows } = await db.query('INSERT INTO zones (restaurant_id, floor_plan_id, name, sort_order) VALUES ($1,$2,$3,$4) RETURNING *',
@@ -700,7 +766,7 @@ app.post('/api/zones', adminAuth.requireAdminAuth, requireRestaurant, async (req
   res.status(201).json(rows[0]);
 });
 
-app.delete('/api/zones/:id', adminAuth.requireAdminAuth, async (req, res) => {
+app.delete('/api/zones/:id', can('floorplans'), ownsRow('zones'), async (req, res) => {
   await db.withTransaction(async (client) => {
     await client.query('UPDATE tables SET zone_id = NULL WHERE zone_id = $1', [req.params.id]);
     await client.query('DELETE FROM zones WHERE id = $1', [req.params.id]);
@@ -709,7 +775,7 @@ app.delete('/api/zones/:id', adminAuth.requireAdminAuth, async (req, res) => {
 });
 
 // --- Mesas ---------------------------------------------------------------------
-app.get('/api/tables', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/tables', can('reservations'), requireRestaurant, async (req, res) => {
   const { floorPlanId, date, shift } = req.query;
   const day = date || dayjs().format('YYYY-MM-DD');
   // Con ?shift=Comida|Cena se devuelve el plano de ese turno (cada turno puede tener el suyo).
@@ -728,7 +794,7 @@ app.get('/api/tables', adminAuth.requireAdminAuth, requireRestaurant, async (req
   res.json(rows);
 });
 
-app.post('/api/tables', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.post('/api/tables', can('floorplans'), requireRestaurant, planOfRestaurant, async (req, res) => {
   const { floorPlanId, zoneId, name, capacityMin, capacityMax, posX, posY } = req.body;
   if (!floorPlanId || !name || !capacityMax) {
     return res.status(400).json({ error: 'floorPlanId, name y capacityMax son obligatorios' });
@@ -743,7 +809,7 @@ app.post('/api/tables', adminAuth.requireAdminAuth, requireRestaurant, async (re
   res.status(201).json(rows[0]);
 });
 
-app.patch('/api/tables/:id', adminAuth.requireAdminAuth, async (req, res) => {
+app.patch('/api/tables/:id', can('floorplans'), ownsRow('tables'), async (req, res) => {
   const { rows: existingRows } = await db.query('SELECT * FROM tables WHERE id = $1', [req.params.id]);
   const existing = existingRows[0];
   if (!existing) return res.status(404).json({ error: 'Mesa no encontrada' });
@@ -768,7 +834,7 @@ app.patch('/api/tables/:id', adminAuth.requireAdminAuth, async (req, res) => {
 
 // Baja lógica: nunca se borra la fila físicamente, para no romper reservas ya
 // creadas que la referencian (reservation_tables.table_id).
-app.delete('/api/tables/:id', adminAuth.requireAdminAuth, async (req, res) => {
+app.delete('/api/tables/:id', can('floorplans'), ownsRow('tables'), async (req, res) => {
   const { rows: existingRows } = await db.query('SELECT * FROM tables WHERE id = $1', [req.params.id]);
   if (!existingRows.length) return res.status(404).json({ error: 'Mesa no encontrada' });
   await db.query('UPDATE tables SET active = 0 WHERE id = $1', [req.params.id]);
@@ -776,7 +842,7 @@ app.delete('/api/tables/:id', adminAuth.requireAdminAuth, async (req, res) => {
 });
 
 // --- Combinaciones de mesas ----------------------------------------------------
-app.get('/api/combinations', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/combinations', can('reservations'), requireRestaurant, async (req, res) => {
   const { floorPlanId } = req.query;
   if (!floorPlanId) return res.status(400).json({ error: 'floorPlanId es obligatorio' });
   const { rows: combos } = await db.query('SELECT * FROM table_combinations WHERE restaurant_id = $1 AND floor_plan_id = $2 AND active = 1',
@@ -801,7 +867,7 @@ app.get('/api/combinations', adminAuth.requireAdminAuth, requireRestaurant, asyn
   }));
 });
 
-app.post('/api/combinations', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.post('/api/combinations', can('floorplans'), requireRestaurant, planOfRestaurant, async (req, res) => {
   const { floorPlanId, name, tableIds, capacityMin, capacityMax } = req.body;
   if (!floorPlanId || !name || !Array.isArray(tableIds) || tableIds.length < 2) {
     return res.status(400).json({ error: 'floorPlanId, name y al menos 2 tableIds son obligatorios' });
@@ -828,7 +894,7 @@ app.post('/api/combinations', adminAuth.requireAdminAuth, requireRestaurant, asy
   res.status(201).json(rows[0]);
 });
 
-app.delete('/api/combinations/:id', adminAuth.requireAdminAuth, async (req, res) => {
+app.delete('/api/combinations/:id', can('floorplans'), ownsRow('table_combinations'), async (req, res) => {
   await db.query('DELETE FROM table_combinations WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
@@ -903,7 +969,7 @@ app.post('/api/survey/:id', async (req, res) => {
 });
 
 // --- Respuestas de la encuesta (panel de personal) --------------------------
-app.get('/api/survey-responses', adminAuth.requireAdminAuth, requireRestaurant, async (req, res) => {
+app.get('/api/survey-responses', can('surveys'), requireRestaurant, async (req, res) => {
   const { rows } = await db.query(`
     SELECT sr.*, r.customer_name, r.date AS reservation_date, r.party_size
     FROM survey_responses sr

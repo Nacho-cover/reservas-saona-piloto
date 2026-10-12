@@ -479,17 +479,19 @@ async function calculate() {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
-  if (!(await guardAdminPage())) return;
+  if (!(await guardAdminPage('reports'))) return;
   renderSessionBar($('sessionBar'));
   setRange('month');
 
-  const [catRes, restRes] = await Promise.all([fetch('/api/reports'), fetch('/api/restaurants')]);
+  const catRes = await fetch('/api/reports');
   state.catalog = await catRes.json();
-  state.restaurants = restRes.ok ? await restRes.json() : [];
+  // Solo los locales del usuario; "Todos" = todos los suyos (el servidor aplica lo mismo).
+  state.restaurants = CURRENT_USER.restaurants;
 
   const sel = $('fLocal');
   const current = getRestaurantId(); // local elegido en el resto del panel (authbar.js)
-  sel.innerHTML = `<option value="all">Todos los locales (${state.restaurants.length})</option>` +
+  const allLabel = CURRENT_USER.allRestaurants ? 'Todos los locales' : 'Todos mis locales';
+  sel.innerHTML = (state.restaurants.length > 1 ? `<option value="all">${allLabel} (${state.restaurants.length})</option>` : '') +
     state.restaurants.map(r => `<option value="${r.id}" ${r.id === current ? 'selected' : ''}>${r.name}</option>`).join('');
 
   renderCatalog();

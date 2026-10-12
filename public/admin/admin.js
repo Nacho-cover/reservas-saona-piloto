@@ -65,6 +65,15 @@ function renderClosureBar() {
   const dayClosed = state.closures.find(c => c.shift === null);
   const shiftClosure = state.closures.find(c => c.shift === state.shift);
   const bar = $('closureBar');
+  // Sin permiso de cierres (rol Sala) solo se informa, sin botones.
+  if (!hasPerm('closures')) {
+    bar.innerHTML = dayClosed
+      ? `<div class="closure-bar closed">🔒 Todo el día ${state.date} está cerrado a reservas nuevas.</div>`
+      : shiftClosure
+        ? `<div class="closure-bar closed">🔒 Turno de ${state.shift} cerrado a reservas nuevas.</div>`
+        : `<div class="closure-bar">Turno de ${state.shift} abierto a reservas.</div>`;
+    return;
+  }
 
   if (dayClosed) {
     bar.innerHTML = `<div class="closure-bar closed">🔒 Todo el día ${state.date} está cerrado a reservas nuevas.
@@ -774,7 +783,7 @@ async function loadMonthView() {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
-  if (!(await guardAdminPage())) return;
+  if (!(await guardAdminPage('reservations'))) return;
   renderSessionBar($('sessionBar'));
   renderRestaurantBar($('restaurantBar'));
 

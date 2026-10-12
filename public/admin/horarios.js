@@ -90,7 +90,8 @@ function prefillForm(shift) {
   $('shiftStart').value = shift.start_time;
   $('shiftEnd').value = shift.end_time;
   $('shiftPlan').value = shift.floor_plan_id ? String(shift.floor_plan_id) : '';
-  document.querySelector('input[name="scope"][value="weekday"]').checked = true;
+  // Sin permiso de horario semanal (franquiciado, encargado) solo se cambian fechas sueltas.
+  document.querySelector(`input[name="scope"][value="${hasPerm('schedule') ? 'weekday' : 'day'}"]`).checked = true;
   state.selectedWeekday = shift.day_of_week;
   updateWeekdayLabel();
   renderScopeFields();
@@ -312,7 +313,7 @@ function renderOverridesList() {
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
-  if (!(await guardAdminPage())) return;
+  if (!(await guardAdminPage('closures'))) return;
   renderSessionBar($('sessionBar'));
   renderRestaurantBar($('restaurantBar'));
 
@@ -324,6 +325,16 @@ window.addEventListener('DOMContentLoaded', async () => {
   const res = await fetch(`/api/restaurants/${RESTAURANT_ID}`);
   const restaurant = await res.json();
   $('restaurantName').textContent = `Horarios — ${restaurant.name}`;
+
+  // Sin permiso de horario semanal: fuera "Todos los lunes" / "Todos los días" (cambian la
+  // plantilla semanal); el plano por turno solo aparece con esas dos opciones. Quedan
+  // las fechas concretas y los cierres.
+  if (!hasPerm('schedule')) {
+    ['weekday', 'everyday'].forEach(v => {
+      const input = document.querySelector(`input[name="scope"][value="${v}"]`);
+      if (input) input.closest('label').classList.add('hidden');
+    });
+  }
 
   await loadAll();
   renderScopeFields();

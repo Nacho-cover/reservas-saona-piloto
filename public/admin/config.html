@@ -18,7 +18,7 @@
     <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap">
       <div id="restaurantBar"></div>
       <div id="sessionBar"></div>
-      <a class="btn btn-secondary" href="/admin/horarios.html">Horarios</a>
+      <a class="btn btn-secondary" href="/admin/horarios.html" data-perm="closures">Horarios</a>
       <a class="btn btn-secondary" href="/admin/">&larr; Volver a reservas</a>
     </div>
   </header>
@@ -101,7 +101,7 @@
   </section>
 
   <!-- Integración (API) -->
-  <section class="cfg-card" id="apiCard">
+  <section class="cfg-card" id="apiCard" data-perm="users">
     <div class="cfg-card-header">
       <h2>Integración (API)</h2>
       <a class="btn-link" href="/api/v1/docs" target="_blank" rel="noopener">Documentación técnica</a>

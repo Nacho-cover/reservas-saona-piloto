@@ -18,10 +18,11 @@
 const express = require('express');
 const dayjs = require('dayjs');
 const db = require('./db');
-const { requireAdminAuth } = require('./adminAuth');
+const { can } = require('./adminAuth');
+const perms = require('./permissions');
 
 const router = express.Router();
-router.use(requireAdminAuth);
+router.use(can('reports'));
 
 // --- Expresiones SQL compartidas --------------------------------------------
 
@@ -78,9 +79,22 @@ const STATUS_FILTERS = {
 
 // --- Contexto de cada petición ------------------------------------------------
 
-function parseContext(q) {
+// Ámbito de locales: "all" = todos los locales a los que el usuario tiene acceso
+// (restaurantIds = null solo para quien ve todos). Lanza 403 si pide un local ajeno.
+function parseContext(q, user) {
   const all = q.restaurantId === 'all';
-  const restaurantId = all ? null : Number(q.restaurantId || 1);
+  const allowed = perms.allowedRestaurantIds(user);
+  let restaurantIds;
+  if (all) {
+    restaurantIds = allowed; // null = sin filtro
+  } else {
+    const id = Number(q.restaurantId || 1);
+    if (!perms.canAccessRestaurant(user, id)) {
+      const err = new Error('No tienes acceso a este local.'); err.status = 403; throw err;
+    }
+    restaurantIds = [id];
+  }
+  const restaurantId = restaurantIds;
   const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
   const from = isDate(q.from) ? q.from : dayjs().startOf('month').format('YYYY-MM-DD');
   const to = isDate(q.to) ? q.to : dayjs().endOf('month').format('YYYY-MM-DD');
@@ -110,7 +124,7 @@ function baseCte(ctx, { applyStatus = false } = {}) {
              (r.date || ' ' || r.time)::timestamp AS inicio
         FROM reservations r
         JOIN restaurants rest ON rest.id = r.restaurant_id
-       WHERE ($1::int IS NULL OR r.restaurant_id = $1)
+       WHERE ($1::int[] IS NULL OR r.restaurant_id = ANY($1::int[]))
          AND ${dateExpr} BETWEEN $2 AND $3
          ${statusSql}
     )`;
@@ -460,7 +474,7 @@ const REPORTS = [
       return run(`
         SELECT rest.name AS "Local", c.date AS "Fecha", COALESCE(c.shift, 'Día completo') AS "Turno", c.note AS "Nota"
           FROM closures c JOIN restaurants rest ON rest.id = c.restaurant_id
-         WHERE ($1::int IS NULL OR c.restaurant_id = $1) AND c.date BETWEEN $2 AND $3
+         WHERE ($1::int[] IS NULL OR c.restaurant_id = ANY($1::int[])) AND c.date BETWEEN $2 AND $3
          ORDER BY rest.name, c.date`, [ctx.restaurantId, ctx.from, ctx.to]);
     },
   },
@@ -481,7 +495,7 @@ const REPORTS = [
           FROM customers c
           JOIN restaurants rest ON rest.id = c.restaurant_id
           LEFT JOIN reservations r ON r.customer_id = c.id
-         WHERE ($1::int IS NULL OR c.restaurant_id = $1)
+         WHERE ($1::int[] IS NULL OR c.restaurant_id = ANY($1::int[]))
          GROUP BY rest.name, c.id ORDER BY rest.name, c.name`, [ctx.restaurantId, ctx.from, ctx.to]);
     },
   },
@@ -558,9 +572,22 @@ async function matrix(ctx, aggSql) {
 
 // --- Rutas -------------------------------------------------------------------
 
+// Los informes del grupo "Clientes" (nombres, teléfonos, visitas) piden un permiso aparte.
+function canSeeReport(user, report) {
+  return report.group !== 'Clientes' || perms.hasPermission(user, 'reports_customers');
+}
+
+function contextOr403(req, res) {
+  try { return parseContext(req.query, req.user); } catch (err) {
+    if (err.status === 403) { res.status(403).json({ error: err.message }); return null; }
+    throw err;
+  }
+}
+
 router.get('/', (req, res) => {
   res.json({
-    reports: REPORTS.map(({ id, sheet, group, title, description, params }) => ({ id, sheet, group, title, description, params })),
+    reports: REPORTS.filter(r => canSeeReport(req.user, r))
+      .map(({ id, sheet, group, title, description, params }) => ({ id, sheet, group, title, description, params })),
     statusFilters: Object.entries(STATUS_FILTERS).map(([id, f]) => ({ id, label: f.label })),
     notAvailable: NOT_AVAILABLE,
   });
@@ -569,7 +596,8 @@ router.get('/', (req, res) => {
 // Panel visual de la página de Informes: KPIs y series para los gráficos, con los
 // mismos filtros que los informes (local o todos, rango, tipo de fecha).
 router.get('/dashboard', async (req, res) => {
-  const ctx = parseContext(req.query);
+  const ctx = contextOr403(req, res);
+  if (!ctx) return;
   if (dayjs(ctx.to).diff(dayjs(ctx.from), 'day') > 366) {
     return res.status(400).json({ error: 'El rango de fechas no puede superar un año.' });
   }
@@ -644,7 +672,9 @@ router.get('/dashboard', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const report = REPORTS.find(r => r.id === req.params.id);
   if (!report) return res.status(404).json({ error: 'Informe no encontrado' });
-  const ctx = parseContext(req.query);
+  if (!canSeeReport(req.user, report)) return res.status(403).json({ error: 'Tu usuario no tiene permiso para los informes de clientes.' });
+  const ctx = contextOr403(req, res);
+  if (!ctx) return;
   if (dayjs(ctx.to).diff(dayjs(ctx.from), 'day') > 366) {
     return res.status(400).json({ error: 'El rango de fechas no puede superar un año.' });
   }

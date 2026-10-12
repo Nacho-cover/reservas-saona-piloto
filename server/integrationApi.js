@@ -16,6 +16,7 @@ const express = require('express');
 const db = require('./db');
 const availability = require('./availability');
 const adminAuth = require('./adminAuth');
+const perms = require('./permissions');
 
 const router = express.Router();
 
@@ -44,8 +45,12 @@ async function requireApiKey(req, res, next) {
     const auth = req.get('authorization') || '';
     const provided = req.get('x-api-key') || (auth.startsWith('Bearer ') ? auth.slice(7) : '');
     if (!provided) {
-      const { admin_session: token } = adminAuth.parseCookies(req);
-      if (adminAuth.isValidSession(token)) { req.apiClient = 'panel'; return next(); }
+      // Sin clave: se admite la sesión del panel (botón «Probar» de Integración), pero
+      // solo de usuarios que gestionan la API — el volcado incluye todos los locales.
+      const user = await adminAuth.getSessionUser(req);
+      if (user && !user.must_change_password && perms.hasPermission(user, 'users')) {
+        req.apiClient = 'panel'; return next();
+      }
       return res.status(401).json({ error: 'Falta la clave de API (cabecera X-API-Key).' });
     }
     const hash = crypto.createHash('sha256').update(provided.trim()).digest();
@@ -268,7 +273,7 @@ router.use((err, req, res, _next) => {
 
 // --- Gestión de claves desde el panel (requiere sesión de personal) ----------
 const adminRouter = express.Router();
-adminRouter.use(adminAuth.requireAdminAuth);
+adminRouter.use(adminAuth.can('users'));
 
 adminRouter.get('/', async (req, res, next) => {
   try {

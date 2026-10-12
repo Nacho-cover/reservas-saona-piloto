@@ -1,0 +1,62 @@
+/* Pantalla de Usuarios (solo Administrador) — ver usuarios.js */
+.users-toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+.users-toolbar input[type=search], .users-toolbar select, .u-select, #uLocalesSearch {
+  padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: var(--surface); color: var(--text);
+}
+.users-toolbar input[type=search] { flex: 1; min-width: 200px; }
+.users-inactive-toggle { font-size: 13px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; }
+
+.users-list { display: flex; flex-direction: column; gap: 8px; }
+.user-row {
+  display: grid; grid-template-columns: minmax(0, 1.6fr) 130px minmax(0, 1.6fr) auto; gap: 12px; align-items: center;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+}
+.user-row.inactive { opacity: 0.55; }
+.user-main { min-width: 0; }
+.user-name { font-weight: 600; }
+.user-email { font-size: 12.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.role-badge {
+  display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  background: var(--brand-light); color: var(--brand-dark); text-align: center; justify-self: start;
+}
+.role-badge.admin { background: var(--brand); color: #fff; }
+.user-locales { font-size: 13px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-locales.none { color: var(--danger); }
+.user-actions { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.user-actions button { border: none; background: none; cursor: pointer; font-size: 13px; color: var(--brand); padding: 4px 6px; border-radius: 6px; }
+.user-actions button:hover { background: var(--bg); }
+.user-actions button.danger { color: var(--danger); }
+.tag-warn { display: inline-block; font-size: 11px; font-weight: 600; color: var(--warn); margin-left: 6px; }
+.users-empty { padding: 18px; text-align: center; color: var(--text-muted); font-size: 14px; }
+
+.user-modal { max-width: 560px; max-height: calc(100vh - 40px); overflow: auto; }
+.u-select { width: 100%; font-size: 15px; }
+.u-locales-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); margin: 6px 0; flex-wrap: wrap; }
+.u-locales-actions { display: flex; gap: 12px; }
+.btn-link { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 13px; padding: 0; }
+.btn-link:hover { text-decoration: underline; }
+#uLocalesSearch { width: 100%; margin-bottom: 8px; }
+.u-locales {
+  border: 1px solid var(--border); border-radius: 8px; max-height: 240px; overflow: auto; padding: 4px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 2px;
+}
+.u-locales label { display: flex; gap: 8px; align-items: center; font-size: 13.5px; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--text); }
+.u-locales label:hover { background: var(--bg); }
+.u-locales label.checked { background: var(--brand-light); }
+.u-active { display: flex; gap: 8px; align-items: center; font-size: 14px; margin-top: 14px; }
+
+.roles-matrix-wrap { overflow-x: auto; }
+.roles-matrix { border-collapse: collapse; width: 100%; font-size: 13px; }
+.roles-matrix th, .roles-matrix td { border-bottom: 1px solid var(--border); padding: 8px 10px; text-align: center; }
+.roles-matrix th:first-child, .roles-matrix td:first-child { text-align: left; }
+.roles-matrix thead th { color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+.roles-matrix .yes { color: var(--brand); font-weight: 700; }
+.roles-matrix .no { color: var(--border); }
+
+@media (max-width: 720px) {
+  .user-row { grid-template-columns: 1fr auto; }
+  .user-row .user-locales { grid-column: 1 / -1; white-space: normal; }
+  .user-row .user-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .u-locales { grid-template-columns: 1fr; }
+}
