@@ -4,6 +4,8 @@
 //   POST   /api/admin/users                     → crea usuario; devuelve la contraseña provisional (una sola vez)
 //   PATCH  /api/admin/users/:id                 → nombre, rol, locales, activo
 //   POST   /api/admin/users/:id/reset-password  → nueva contraseña provisional (una sola vez)
+//   POST   /api/admin/users/:id/invite          → manda por email un enlace para elegir contraseña
+//   POST   /api/admin/users/bulk                → alta de varios usuarios a la vez (importación de Excel)
 //
 // La contraseña provisional obliga a cambiarla en el primer acceso. Nunca se guarda en
 // claro ni se puede volver a consultar.
@@ -12,6 +14,7 @@ const express = require('express');
 const db = require('./db');
 const adminAuth = require('./adminAuth');
 const perms = require('./permissions');
+const accountEmails = require('./accountEmails');
 
 const router = express.Router();
 router.use(adminAuth.can('users'));
@@ -90,7 +93,80 @@ router.post('/', async (req, res) => {
     return rows[0].id;
   });
   const user = (await listUsers()).find(u => u.id === id);
-  res.status(201).json({ user, tempPassword });
+  let emailSent = null;
+  if (req.body.sendInvite) emailSent = await invite(req, user);
+  res.status(201).json({ user, tempPassword, emailSent });
+});
+
+// Manda la invitación por email. Devuelve true/false según si Resend la aceptó.
+async function invite(req, user) {
+  const result = await accountEmails.sendInviteEmail(req, user, req.user.name || req.user.email);
+  return !!(result && result.ok);
+}
+
+router.post('/:id/invite', async (req, res) => {
+  const user = (await listUsers()).find(u => u.id === Number(req.params.id));
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado.' });
+  if (!user.active) return res.status(400).json({ error: 'El usuario está desactivado.' });
+  const ok = await invite(req, user);
+  if (!ok) return res.status(502).json({ error: 'No se pudo enviar el email. Comprueba la configuración de envío (Resend) o pásale una contraseña provisional.' });
+  res.json({ ok: true });
+});
+
+// Alta masiva. Cuerpo: { users: [{ email, name, role, restaurantIds }], sendInvites }.
+// Se valida todo antes de crear nada; los correos que ya existen se saltan (no es un
+// error). Devuelve la contraseña provisional de cada usuario creado (una sola vez).
+router.post('/bulk', async (req, res) => {
+  const input = Array.isArray(req.body.users) ? req.body.users : [];
+  if (!input.length) return res.status(400).json({ error: 'No hay usuarios que importar.' });
+  if (input.length > 500) return res.status(400).json({ error: 'Como máximo 500 usuarios por importación.' });
+
+  const { rows: allRest } = await db.query('SELECT id FROM restaurants');
+  const validRest = new Set(allRest.map(r => r.id));
+  const { rows: existingRows } = await db.query('SELECT email FROM users');
+  const existing = new Set(existingRows.map(r => r.email));
+
+  const errors = [];
+  const skipped = [];
+  const toCreate = [];
+  const seen = new Set();
+  input.forEach((u, i) => {
+    const row = i + 1;
+    const email = String(u.email || '').trim().toLowerCase();
+    const role = String(u.role || '').trim();
+    const ids = [...new Set((Array.isArray(u.restaurantIds) ? u.restaurantIds : []).map(Number))];
+    if (!EMAIL_RE.test(email)) return errors.push({ row, email, error: 'Correo no válido' });
+    if (seen.has(email)) return errors.push({ row, email, error: 'Correo repetido en el fichero' });
+    seen.add(email);
+    if (existing.has(email)) return skipped.push({ row, email, reason: 'Ya existe' });
+    if (!perms.ROLES[role]) return errors.push({ row, email, error: 'Rol no válido' });
+    if (ids.some(id => !validRest.has(id))) return errors.push({ row, email, error: 'Algún local no existe' });
+    if (!perms.ROLES[role].allRestaurants && !ids.length) return errors.push({ row, email, error: 'Sin locales asignados' });
+    toCreate.push({ email, name: String(u.name || '').trim().slice(0, 80) || null, role,
+      restaurantIds: perms.ROLES[role].allRestaurants ? [] : ids });
+  });
+  if (errors.length) return res.status(400).json({ error: `Hay ${errors.length} fila(s) con errores; no se ha creado ningún usuario.`, errors });
+
+  const created = await db.withTransaction(async (client) => {
+    const out = [];
+    for (const u of toCreate) {
+      const tempPassword = adminAuth.generateTempPassword();
+      const { rows } = await client.query(
+        `INSERT INTO users (email, name, role, password_hash, must_change_password)
+         VALUES ($1, $2, $3, $4, true) RETURNING id`,
+        [u.email, u.name, u.role, adminAuth.hashPassword(tempPassword)]);
+      await setRestaurants(client, rows[0].id, u.restaurantIds);
+      out.push({ id: rows[0].id, email: u.email, name: u.name, role: u.role, restaurantIds: u.restaurantIds, tempPassword });
+    }
+    return out;
+  });
+
+  // Las invitaciones se mandan después de crear (si alguna falla, el usuario ya existe
+  // y se puede reenviar desde la lista o usar su contraseña provisional).
+  if (req.body.sendInvites) {
+    for (const u of created) u.emailSent = await invite(req, u);
+  }
+  res.status(201).json({ created, skipped });
 });
 
 router.patch('/:id', async (req, res) => {

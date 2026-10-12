@@ -12,7 +12,10 @@ const { verifySurveyToken, sendSurveyEmail } = require('./survey');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+// Registro de actividad: apunta cada cambio hecho desde el panel (ver server/audit.js).
+const audit = require('./audit');
+app.use(audit.middleware);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // API de integración (solo lectura, con clave) para que otras apps lean locales y
@@ -89,6 +92,7 @@ app.post('/api/admin/login', async (req, res) => {
   }
   failedLogins.delete(email);
   await db.query("UPDATE users SET last_login_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1", [user.id]);
+  audit.record({ user, action: 'sesion.entrar', summary: 'Inicio de sesión' });
   adminAuth.setSessionCookie(res, adminAuth.createSession(user.id));
   res.json({ ok: true, mustChangePassword: !!user.must_change_password });
 });
@@ -126,6 +130,54 @@ app.post('/api/admin/change-password', adminAuth.requireSession({ allowMustChang
   adminAuth.invalidateUser(req.user.id);
   res.json({ ok: true });
 });
+
+// --- Contraseña olvidada: enlace de un solo uso por email (ver server/accountEmails.js)
+// Siempre responde lo mismo, exista o no el correo, para no revelar quién tiene acceso.
+const accountEmails = require('./accountEmails');
+const lastResetRequest = new Map(); // email -> ms (como mucho un email cada 2 min por correo)
+app.post('/api/admin/forgot-password', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const generic = { ok: true, message: 'Si ese correo tiene acceso al panel, te hemos enviado un enlace para elegir una contraseña nueva. Revisa también el correo no deseado.' };
+  if (!email) return res.status(400).json({ error: 'Escribe tu correo.' });
+  const last = lastResetRequest.get(email) || 0;
+  if (Date.now() - last < 2 * 60 * 1000) return res.json(generic);
+  lastResetRequest.set(email, Date.now());
+  const { rows } = await db.query('SELECT id, email, name, active FROM users WHERE email = $1', [email]);
+  if (rows.length && rows[0].active) {
+    const result = await accountEmails.sendResetEmail(req, rows[0]);
+    audit.record({ user: rows[0], action: 'sesion.olvido', summary: result && result.ok ? 'Pidió restablecer la contraseña (email enviado)' : 'Pidió restablecer la contraseña (el email no se pudo enviar)' });
+  }
+  res.json(generic);
+});
+
+// Comprueba un enlace (para que la página diga a quién pertenece o si ha caducado).
+app.get('/api/admin/reset-password', async (req, res) => {
+  const t = await accountEmails.findValidToken(req.query.token);
+  if (!t) return res.status(400).json({ error: 'El enlace no es válido o ha caducado. Pide uno nuevo desde la pantalla de acceso.' });
+  res.json({ email: t.email, name: t.name, purpose: t.purpose });
+});
+
+app.post('/api/admin/reset-password', async (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!newPassword || newPassword.length < 8) {
+    return res.status(400).json({ error: 'La contraseña nueva debe tener al menos 8 caracteres.' });
+  }
+  const t = await accountEmails.findValidToken(token);
+  if (!t) return res.status(400).json({ error: 'El enlace no es válido o ha caducado. Pide uno nuevo desde la pantalla de acceso.' });
+  await accountEmails.markUsed(t.token_id);
+  await db.query('UPDATE users SET password_hash = $1, must_change_password = false WHERE id = $2',
+    [adminAuth.hashPassword(newPassword), t.id]);
+  adminAuth.destroyUserSessions(t.id);
+  failedLogins.delete(t.email);
+  audit.record({ user: t, action: 'sesion.contraseña', summary: t.purpose === 'invite' ? 'Activó su acceso con la invitación' : 'Restableció su contraseña con el enlace del email' });
+  // Entra directamente, sin tener que volver a escribir la contraseña.
+  await db.query("UPDATE users SET last_login_at = to_char(now(), 'YYYY-MM-DD HH24:MI:SS') WHERE id = $1", [t.id]);
+  adminAuth.setSessionCookie(res, adminAuth.createSession(t.id));
+  res.json({ ok: true });
+});
+
+// Registro de actividad (pantalla Actividad).
+app.use('/api/admin/activity', audit.router);
 
 // Gestión de usuarios (solo Administrador) — ver server/usersApi.js.
 app.use('/api/admin/users', require('./usersApi'));
@@ -205,6 +257,7 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
     if (!perms.hasPermission(staff, 'reservations') || !perms.canAccessRestaurant(staff, restaurant.id)) {
       return res.status(403).json({ error: 'No tienes acceso a este local.' });
     }
+    req.user = staff; // para el registro de actividad
   }
   const isWalkIn = bookingSource === 'walkin';
   // El personal puede forzar una mesa aunque no encaje por capacidad (con aviso en el panel).
@@ -476,6 +529,7 @@ app.post('/api/reservations/swap', can('reservations'), async (req, res) => {
     return res.status(400).json({ error: 'No se puede intercambiar una reserva cancelada o no-show.' });
   }
   const restaurant = await getRestaurant(a.restaurant_id);
+  req.restaurant = restaurant; // para el registro de actividad
   const tablesOf = async (id) => (await db.query('SELECT table_id FROM reservation_tables WHERE reservation_id = $1', [id])).rows.map(r => r.table_id);
   const tablesA = await tablesOf(a.id);
   const tablesB = await tablesOf(b.id);

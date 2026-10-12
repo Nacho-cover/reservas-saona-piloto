@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Actividad – Panel de personal</title>
+<link rel="stylesheet" href="/admin/admin.css">
+<link rel="stylesheet" href="/admin/config.css">
+<link rel="stylesheet" href="/admin/usuarios.css">
+<link rel="stylesheet" href="/admin/actividad.css">
+</head>
+<body>
+<div class="admin">
+  <header class="admin-topbar">
+    <div>
+      <div class="admin-title">Actividad</div>
+      <div class="admin-sub">Quién ha cambiado qué en el panel, y cuándo</div>
+    </div>
+    <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap">
+      <div id="sessionBar"></div>
+      <a class="btn btn-secondary" href="/admin/">&larr; Volver a reservas</a>
+    </div>
+  </header>
+
+  <section class="cfg-card">
+    <div class="act-filters">
+      <label class="field"><span>Local</span><select id="fLocal"></select></label>
+      <label class="field"><span>Persona</span><select id="fUser"><option value="">Todas</option></select></label>
+      <label class="field"><span>Tipo</span><select id="fArea">
+        <option value="">Todo</option>
+        <option value="reserva">Reservas</option>
+        <option value="cierre">Cierres</option>
+        <option value="horario">Horarios</option>
+        <option value="plano">Planos</option>
+        <option value="mesa">Mesas</option>
+        <option value="zona">Zonas</option>
+        <option value="combinacion">Combinaciones</option>
+        <option value="usuario">Usuarios</option>
+        <option value="api">API</option>
+        <option value="sesion">Accesos</option>
+      </select></label>
+      <label class="field"><span>Desde</span><input type="date" id="fFrom"></label>
+      <label class="field"><span>Hasta</span><input type="date" id="fTo"></label>
+      <label class="field act-q"><span>Buscar</span><input type="search" id="fQ" placeholder="Nombre del cliente, mesa, nº de reserva…"></label>
+    </div>
+    <div class="act-bar">
+      <span class="cfg-hint" id="actCount" style="margin:0"></span>
+      <button class="btn btn-secondary" type="button" id="actExport">Descargar Excel</button>
+    </div>
+    <div id="actList" class="act-list"></div>
+  </section>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script src="/admin/authbar.js"></script>
+<script src="/admin/actividad.js"></script>
+</body>
+</html>

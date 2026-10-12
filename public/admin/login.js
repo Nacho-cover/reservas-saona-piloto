@@ -2,7 +2,14 @@ const $ = (id) => document.getElementById(id);
 
 function nextUrl() {
   const params = new URLSearchParams(location.search);
-  return params.get('next') || '/admin/';
+  const next = params.get('next') || '/admin/';
+  // Solo rutas del propio panel (evita redirigir a otra web con ?next=https://...).
+  return /^\/admin\//.test(next) ? next : '/admin/';
+}
+
+function show(form) {
+  $('loginForm').classList.toggle('hidden', form !== 'login');
+  $('forgotForm').classList.toggle('hidden', form !== 'forgot');
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -26,6 +33,37 @@ window.addEventListener('DOMContentLoaded', () => {
       location.href = nextUrl();
     } catch (err) {
       $('loginError').textContent = err.message;
+      btn.disabled = false;
+    }
+  });
+
+  $('forgotLink').addEventListener('click', () => {
+    $('forgotEmail').value = $('loginUser').value.trim();
+    $('forgotMsg').textContent = '';
+    show('forgot');
+    $('forgotEmail').focus();
+  });
+  $('backToLogin').addEventListener('click', () => show('login'));
+
+  $('forgotForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = $('forgotMsg');
+    msg.style.color = '';
+    msg.textContent = '';
+    const btn = $('forgotBtn');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/admin/forgot-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: $('forgotEmail').value.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo enviar');
+      msg.style.color = 'var(--brand-dark)';
+      msg.textContent = data.message;
+    } catch (err) {
+      msg.textContent = err.message;
+    } finally {
       btn.disabled = false;
     }
   });

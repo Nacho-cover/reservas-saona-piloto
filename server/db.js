@@ -285,6 +285,32 @@ async function initDb() {
       PRIMARY KEY (user_id, restaurant_id)
     );
     CREATE INDEX IF NOT EXISTS idx_user_restaurants_restaurant ON user_restaurants(restaurant_id);
+
+    -- Enlaces de un solo uso (restablecer contraseña / invitación). Solo el sha256.
+    CREATE TABLE IF NOT EXISTS password_tokens (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      purpose TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    -- Registro de actividad del panel: quién cambió qué y cuándo (ver server/audit.js).
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id BIGSERIAL PRIMARY KEY,
+      at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      user_email TEXT,
+      restaurant_id INTEGER REFERENCES restaurants(id) ON DELETE SET NULL,
+      action TEXT NOT NULL,
+      summary TEXT,
+      details JSONB
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_log_at ON audit_log(at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_restaurant ON audit_log(restaurant_id, at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, at DESC);
   `);
   // Primer arranque con usuarios: el usuario compartido de admin_credentials pasa a ser
   // el primer Administrador, con su misma contraseña. Si seguía con la contraseña por

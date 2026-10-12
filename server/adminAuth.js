@@ -153,10 +153,12 @@ function ownsRow(table, param = 'id') {
     try {
       const id = Number(req.params[param]);
       if (!Number.isInteger(id)) return res.status(400).json({ error: 'Identificador no válido.' });
-      const { rows } = await db.query(`SELECT restaurant_id FROM ${table} WHERE id = $1`, [id]);
+      const { rows } = await db.query(`SELECT * FROM ${table} WHERE id = $1`, [id]);
       if (rows.length && !perms.canAccessRestaurant(req.user, rows[0].restaurant_id)) {
         return res.status(403).json({ error: 'No tienes acceso a este local.' });
       }
+      // Estado anterior del registro: lo usa el registro de actividad (server/audit.js).
+      if (rows.length) req.ownedRow = rows[0];
       next();
     } catch (err) { next(err); }
   };

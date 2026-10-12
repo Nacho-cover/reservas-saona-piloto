@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Elegir contraseña – Panel de personal</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+<div class="login-wrap">
+  <form class="login-card" id="resetForm">
+    <h1 id="resetTitle">Elegir contraseña</h1>
+    <p class="admin-sub" id="resetSub">Comprobando el enlace…</p>
+    <div id="resetFields" class="hidden">
+      <label class="field"><span>Contraseña nueva (mínimo 8 caracteres)</span><input type="password" id="newPass" autocomplete="new-password" required></label>
+      <label class="field"><span>Repítela</span><input type="password" id="newPass2" autocomplete="new-password" required></label>
+    </div>
+    <p class="error" id="resetError"></p>
+    <button class="btn btn-primary hidden" type="submit" id="resetBtn">Guardar y entrar</button>
+    <p class="login-alt"><a class="btn-link" href="/admin/login.html">Ir a la pantalla de acceso</a></p>
+  </form>
+</div>
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  const token = new URLSearchParams(location.search).get('token') || '';
+  // Quita el token de la barra de direcciones (y del historial) en cuanto se lee.
+  history.replaceState(null, '', location.pathname);
+  try {
+    const res = await fetch('/api/admin/reset-password?token=' + encodeURIComponent(token));
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    $('resetTitle').textContent = data.purpose === 'invite' ? 'Bienvenido/a' : 'Elegir contraseña';
+    $('resetSub').textContent = `Elige la contraseña para ${data.email}.`;
+    $('resetFields').classList.remove('hidden');
+    $('resetBtn').classList.remove('hidden');
+    $('newPass').focus();
+  } catch (err) {
+    $('resetSub').textContent = '';
+    $('resetError').textContent = err.message || 'El enlace no es válido.';
+  }
+  $('resetForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pwd = $('newPass').value;
+    $('resetError').textContent = '';
+    if (pwd !== $('newPass2').value) { $('resetError').textContent = 'Las dos contraseñas no coinciden.'; return; }
+    $('resetBtn').disabled = true;
+    try {
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newPassword: pwd }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      location.href = '/admin/';
+    } catch (err) {
+      $('resetError').textContent = err.message;
+      $('resetBtn').disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>

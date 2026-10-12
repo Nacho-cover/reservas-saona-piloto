@@ -24,7 +24,10 @@
   <section class="cfg-card">
     <div class="cfg-card-header">
       <h2>Usuarios del panel</h2>
-      <button class="btn btn-primary" type="button" id="newUserBtn">+ Nuevo usuario</button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap">
+        <button class="btn btn-secondary" type="button" id="importBtn">Importar desde Excel</button>
+        <button class="btn btn-primary" type="button" id="newUserBtn">+ Nuevo usuario</button>
+      </div>
     </div>
     <div class="users-toolbar">
       <input type="search" id="userSearch" placeholder="Buscar por nombre, correo o local">
@@ -63,6 +66,7 @@
     </div>
 
     <label class="u-active hidden" id="uActiveRow"><input type="checkbox" id="uActive"> Usuario activo (puede entrar)</label>
+    <label class="u-active" id="uInviteRow"><input type="checkbox" id="uInvite" checked> Enviarle por email un enlace para elegir su contraseña</label>
     <p class="error" id="userError"></p>
     <div class="modal-actions">
       <button class="btn btn-secondary" type="button" id="userCancelBtn">Cancelar</button>
@@ -82,6 +86,31 @@
   </div>
 </div>
 
+<!-- Importar desde Excel -->
+<div class="modal-backdrop hidden" id="importModal">
+  <div class="modal import-modal">
+    <h2>Importar usuarios desde Excel</h2>
+    <div id="importStep1">
+      <p class="cfg-hint">Una fila por persona con las columnas <strong>Correo</strong>, <strong>Nombre</strong>, <strong>Rol</strong> y <strong>Locales</strong>
+        (varios separados por «;», o «Todos»). Los correos que ya existan se saltan. Vale .xlsx o .csv.</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+        <button class="btn btn-secondary" type="button" id="templateBtn">Descargar plantilla</button>
+        <label class="btn btn-primary import-file">Elegir fichero<input type="file" id="importFile" accept=".xlsx,.xls,.csv"></label>
+        <span class="cfg-hint" id="importFileName" style="margin:0"></span>
+      </div>
+      <div id="importPreview"></div>
+      <label class="u-active hidden" id="importInviteRow"><input type="checkbox" id="importInvite" checked> Enviar a cada uno un email para elegir su contraseña</label>
+    </div>
+    <div id="importStep2" class="hidden"></div>
+    <p class="error" id="importError"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" type="button" id="importCancel">Cerrar</button>
+      <button class="btn btn-primary hidden" type="button" id="importGo">Crear usuarios</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
 <script src="/admin/authbar.js"></script>
 <script src="/admin/usuarios.js"></script>
 </body>

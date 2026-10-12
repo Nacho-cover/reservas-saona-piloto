@@ -15,6 +15,16 @@
     <label class="field"><span>Contraseña</span><input type="password" id="loginPass" autocomplete="current-password" required></label>
     <p class="error" id="loginError"></p>
     <button class="btn btn-primary" type="submit" id="loginBtn">Entrar</button>
+    <p class="login-alt"><button class="btn-link" type="button" id="forgotLink">¿Has olvidado la contraseña?</button></p>
+  </form>
+
+  <form class="login-card hidden" id="forgotForm">
+    <h1>Contraseña olvidada</h1>
+    <p class="admin-sub">Te mandamos un enlace a tu correo para elegir una nueva.</p>
+    <label class="field"><span>Tu correo</span><input type="email" id="forgotEmail" autocomplete="username" required></label>
+    <p class="error" id="forgotMsg"></p>
+    <button class="btn btn-primary" type="submit" id="forgotBtn">Enviar enlace</button>
+    <p class="login-alt"><button class="btn-link" type="button" id="backToLogin">&larr; Volver a entrar</button></p>
   </form>
 </div>
 <script src="/admin/login.js"></script>

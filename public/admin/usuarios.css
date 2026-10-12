@@ -60,3 +60,19 @@
   .user-row .user-actions { grid-column: 1 / -1; justify-content: flex-start; }
   .u-locales { grid-template-columns: 1fr; }
 }
+
+/* Importación desde Excel */
+.import-modal { max-width: 860px; max-height: calc(100vh - 40px); overflow: auto; }
+.import-file { position: relative; overflow: hidden; display: inline-block; }
+.import-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.import-summary { font-size: 14px; margin: 14px 0 8px; }
+.import-summary .bad { color: var(--danger); font-weight: 600; }
+.import-table-wrap { max-height: 340px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.import-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.import-table th, .import-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.import-table th { position: sticky; top: 0; background: var(--bg); font-weight: 600; color: var(--text-muted); }
+.import-table tr.err td { background: #fbeceb; }
+.import-table tr.skip td { color: var(--text-muted); }
+.import-table .st-ok { color: var(--brand); font-weight: 600; }
+.import-table .st-err { color: var(--danger); font-weight: 600; }
+.import-table code { font-size: 13px; }

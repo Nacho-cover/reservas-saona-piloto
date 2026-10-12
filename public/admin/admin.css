@@ -140,6 +140,9 @@ button, input, select, textarea { font-family: inherit; }
 .login-card .field { margin-bottom: 14px; }
 .login-card .field input { width: 100%; }
 .login-card .btn { width: 100%; margin-top: 6px; }
+.login-alt { text-align: center; margin: 16px 0 0; }
+.login-alt .btn-link { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 13px; padding: 0; text-decoration: none; }
+.login-alt .btn-link:hover { text-decoration: underline; }
 
 .session-bar { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-muted); }
 .session-bar .btn-link { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 13px; padding: 0; }

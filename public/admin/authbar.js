@@ -105,6 +105,7 @@ function renderSessionBar(container) {
   container.innerHTML = `
     <div class="session-bar">
       ${u ? `<span class="session-user" title="${escapeAuthHtml(u.email)}">${escapeAuthHtml(u.name || u.email.split('@')[0])} · <strong>${escapeAuthHtml(u.roleLabel)}</strong></span>` : ''}
+      ${hasPerm('reports') ? '<a class="btn-link" href="/admin/actividad.html">Actividad</a>' : ''}
       ${hasPerm('users') ? '<a class="btn-link" href="/admin/usuarios.html">Usuarios</a>' : ''}
       <button class="btn-link" id="changePassBtn" type="button">Cambiar contraseña</button>
       <button class="btn-link" id="logoutBtn" type="button">Cerrar sesión</button>
