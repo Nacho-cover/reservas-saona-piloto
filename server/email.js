@@ -41,8 +41,27 @@ function confirmationEmailHtml({ restaurant, reservation, zoneNames }) {
 </body></html>`;
 }
 
-// Envío genérico vía Resend, reutilizado por la confirmación y por la encuesta.
-async function sendEmail({ to, subject, html }) {
+// Fase de pruebas: TODOS los emails de la app (confirmaciones y encuestas a clientes,
+// invitaciones y restablecimientos de contraseña) se desvían a un único buzón, con el
+// destinatario real indicado en el asunto y en una franja al principio del mensaje.
+// Para enviar a los destinatarios reales, poner EMAIL_REDIRECT_TO=off en Render.
+const REDIRECT_RAW = process.env.EMAIL_REDIRECT_TO;
+const EMAIL_REDIRECT_TO = REDIRECT_RAW === undefined ? 'ngarcia@gruposaona.com'
+  : (/^(off|no|false|0|)$/i.test(REDIRECT_RAW.trim()) ? null : REDIRECT_RAW.trim());
+
+function redirectEmail({ to, subject, html }) {
+  if (!EMAIL_REDIRECT_TO) return { to, subject, html };
+  const original = Array.isArray(to) ? to.join(', ') : String(to);
+  const safe = original.replace(/[<>&"]/g, '');
+  const banner = `<div style="background:#fff3cd;color:#664d03;border-bottom:1px solid #e6d28a;padding:10px 16px;font:13px -apple-system,Segoe UI,Roboto,sans-serif;">
+    <strong>Modo pruebas:</strong> este email iba dirigido a <strong>${safe}</strong> y se ha desviado a ${EMAIL_REDIRECT_TO}.</div>`;
+  const withBanner = /<body[^>]*>/i.test(html) ? html.replace(/(<body[^>]*>)/i, `$1${banner}`) : banner + html;
+  return { to: EMAIL_REDIRECT_TO, subject: `[Para: ${original}] ${subject}`, html: withBanner };
+}
+
+// Envío genérico vía Resend, reutilizado por la confirmación, la encuesta y los accesos.
+async function sendEmail(message) {
+  const { to, subject, html } = redirectEmail(message);
   if (!RESEND_API_KEY) {
     console.warn('RESEND_API_KEY no configurada — no se envía el email:', subject);
     return { skipped: 'sin API key' };
@@ -74,4 +93,4 @@ async function sendConfirmationEmail({ restaurant, reservation, zoneNames }) {
   });
 }
 
-module.exports = { sendConfirmationEmail, sendEmail, formatFechaLarga };
+module.exports = { sendConfirmationEmail, sendEmail, formatFechaLarga, redirectEmail, EMAIL_REDIRECT_TO };
