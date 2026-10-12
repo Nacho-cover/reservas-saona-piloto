@@ -236,6 +236,79 @@ async function runAction(report, row, btn) {
   }
 }
 
+// --- "Resumen del periodo" en Excel -------------------------------------------------
+// Las mismas cifras que los indicadores y los gráficos de arriba, en tablas: una hoja con
+// los indicadores y los filtros usados, y una hoja por gráfico (con todos los locales,
+// no solo los 15 que caben en el gráfico).
+function dashTables(d) {
+  const sel = $('fLocal');
+  const k = d.kpis;
+  const tables = [
+    ['Resumen', {
+      columns: ['Indicador', 'Valor'],
+      rows: [
+        ['Local', sel.options[sel.selectedIndex]?.text.replace(/ \(\d+\)$/, '') || ''],
+        ['Desde', d.from], ['Hasta', d.to],
+        ['Tipo de fecha', $('fDateType').options[$('fDateType').selectedIndex]?.text || ''],
+        ['Reservas (sin canceladas ni no show)', k.reservas],
+        ['Comensales (sin canceladas ni no show)', k.personas],
+        ['Pax medio por reserva', k.paxMedio],
+        ['Reservas totales (todas)', k.total],
+        ['No show', k.noShow],
+        ['% no show', k.pctNoShow != null ? k.pctNoShow / 100 : null],
+        ['Cancelaciones', k.canceladas],
+        ['Antelación media (días)', k.antelacion],
+      ],
+      pct: [9],
+    }],
+    ['Comensales por día', {
+      columns: ['Día', 'Comida', 'Cena', 'Total'],
+      rows: d.porDia.map(r => [r.dia, r.comida, r.cena, r.comida + r.cena]),
+    }],
+    ['Comensales por hora', {
+      columns: ['Hora', 'Comensales'],
+      rows: d.porHora.map(r => [`${r.hora}:00`, r.personas]),
+    }],
+    ['Reservas por canal', {
+      columns: ['Canal', 'Reservas', 'Comensales'],
+      rows: d.porCanal.map(r => [r.canal, r.reservas, r.personas]),
+    }],
+  ];
+  if (d.all) {
+    tables.push(['Por local', {
+      columns: ['Local', 'Reservas', 'Comensales', '% no show'],
+      rows: d.porLocal.map(r => [r.local, r.reservas, r.personas, r.pct_no_show != null ? r.pct_no_show / 100 : null]),
+      pctCol: 3,
+    }]);
+  }
+  tables.push(['Estado de las reservas', {
+    columns: ['Estado', 'Reservas'],
+    rows: d.porEstado.map(r => [r.estado, r.reservas]),
+  }]);
+  return tables;
+}
+
+// Hoja con formato de porcentaje donde toca (filas o columnas marcadas).
+function dashSheet(t) {
+  const ws = sheetFor(t);
+  const fmt = (addr) => { if (ws[addr] && typeof ws[addr].v === 'number') ws[addr].z = '0.0%'; };
+  (t.pct || []).forEach(i => fmt(XLSX.utils.encode_cell({ r: i + 1, c: 1 })));
+  if (t.pctCol != null) t.rows.forEach((_, i) => fmt(XLSX.utils.encode_cell({ r: i + 1, c: t.pctCol })));
+  return ws;
+}
+
+function appendDashSheets(wb, used) {
+  if (!state.dash) return;
+  for (const [name, t] of dashTables(state.dash)) XLSX.utils.book_append_sheet(wb, dashSheet(t), sheetName(name, used));
+}
+
+function downloadDash() {
+  if (!state.dash || !xlsxReady()) return;
+  const wb = XLSX.utils.book_new();
+  appendDashSheets(wb, new Set());
+  XLSX.writeFile(wb, `resumen-${localSlug()}-${$('fFrom').value}_${$('fTo').value}.xlsx`, { compression: true });
+}
+
 // Un solo Excel con una hoja por informe (con los filtros de cada fila tal cual estén).
 async function downloadAll() {
   if (!xlsxReady()) return;
@@ -246,6 +319,8 @@ async function downloadAll() {
   const used = new Set();
   const failed = [];
   const reports = state.catalog.reports;
+  // Primero el resumen del periodo (indicadores y datos de los gráficos).
+  appendDashSheets(wb, used);
   const rows = [...document.querySelectorAll('.rep-row')];
   for (let i = 0; i < reports.length; i++) {
     status.textContent = `Generando ${i + 1} de ${reports.length}: ${reports[i].title}…`;
@@ -259,7 +334,7 @@ async function downloadAll() {
   XLSX.writeFile(wb, `informes-${localSlug()}-${$('fFrom').value}_${$('fTo').value}.xlsx`, { compression: true });
   status.textContent = failed.length
     ? `Descargado, pero no se pudieron generar: ${failed.join(', ')}.`
-    : `Descargado: ${reports.length} informes, una hoja por informe.`;
+    : `Descargado: el resumen del periodo y ${reports.length} informes, una hoja por informe.`;
   btn.disabled = false;
 }
 
@@ -465,6 +540,8 @@ async function calculate() {
     const d = await res.json();
     if (!res.ok) throw new Error(d.error || 'No se pudo cargar el resumen.');
     if (seq !== dashSeq) return; // llegó otra petición más nueva mientras tanto
+    state.dash = d;
+    $('dashXlsx').disabled = false;
     renderKpis(d.kpis);
     const vacio = d.kpis.total === 0;
     $('dashEmpty').textContent = 'No hay reservas en este periodo con estos filtros.';
@@ -472,6 +549,8 @@ async function calculate() {
     document.querySelector('.chart-grid').hidden = vacio;
     if (!vacio) renderCharts(d);
   } catch (err) {
+    state.dash = null;
+    $('dashXlsx').disabled = true;
     $('kpis').innerHTML = '';
     $('dashEmpty').textContent = err.message;
     $('dashEmpty').hidden = false;
@@ -501,5 +580,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   ['fLocal', 'fFrom', 'fTo', 'fDateType'].forEach(id => $(id).addEventListener('change', calculate));
   $('calcBtn').addEventListener('click', calculate);
   $('allBtn').addEventListener('click', downloadAll);
+  $('dashXlsx').addEventListener('click', downloadDash);
   calculate();
 });

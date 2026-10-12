@@ -753,6 +753,7 @@ async function loadMonthView() {
 
   const res = await fetch(`/api/reservations/summary?restaurantId=${RESTAURANT_ID}&from=${from}&to=${to}`);
   const rows = await res.json();
+  state.monthRows = { from, to, rows };
   const byDate = {};
   rows.forEach(r => { byDate[r.date] = r; });
 
@@ -780,6 +781,58 @@ async function loadMonthView() {
     });
     grid.appendChild(cell);
   }
+}
+
+// --- Excel del día y del mes (roles con informes) ---------------------------------
+const CANAL_LABELS = { web: 'Web', app: 'App', phone: 'Teléfono', admin: 'Panel', walkin: 'Walk-in' };
+function restaurantSlug() {
+  return ($('restaurantName').textContent || 'local').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+function xlsxSheet(columns, rows) {
+  const ws = XLSX.utils.aoa_to_sheet([columns, ...rows]);
+  ws['!cols'] = columns.map((c, i) => ({
+    wch: Math.min(Math.max(String(c).length, ...rows.slice(0, 200).map(r => String(r[i] ?? '').length)) + 2, 50),
+  }));
+  ws['!autofilter'] = { ref: ws['!ref'] };
+  return ws;
+}
+function xlsxOk() {
+  if (window.XLSX) return true;
+  alert('No se ha podido cargar el generador de Excel. Recarga la página.');
+  return false;
+}
+
+function downloadDayXlsx() {
+  if (!xlsxOk()) return;
+  const columns = ['Fecha', 'Hora', 'Turno', 'Cliente', 'Comensales', 'Mesa', 'Estado', 'Cancelada por', 'Canal', 'Teléfono', 'Email', 'Notas'];
+  const rows = [...state.reservations]
+    .sort((a, b) => a.time.localeCompare(b.time))
+    .map(r => [r.date, r.time, shiftLabel(r.time), r.customer_name, r.party_size, (r.tables || []).join('+'),
+      STATUS_LABELS[r.status] || r.status,
+      r.status === 'cancelled' ? ({ customer: 'Cliente', restaurant: 'Restaurante' }[r.cancelled_by] || '') : '',
+      CANAL_LABELS[r.source] || r.source, r.phone || '', r.email || '', r.notes || '']);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, xlsxSheet(columns, rows), 'Reservas');
+  XLSX.writeFile(wb, `reservas-${restaurantSlug()}-${state.date}.xlsx`, { compression: true });
+}
+
+function downloadMonthXlsx() {
+  if (!xlsxOk() || !state.monthRows) return;
+  const { from, to, rows } = state.monthRows;
+  const byDate = Object.fromEntries(rows.map(r => [r.date, r]));
+  const out = [];
+  for (let d = new Date(from + 'T00:00:00'); ; d.setDate(d.getDate() + 1)) {
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (key > to) break;
+    const r = byDate[key];
+    out.push([key, d.toLocaleDateString('es-ES', { weekday: 'long' }), r ? r.reservations : 0, r ? r.covers : 0]);
+  }
+  const total = out.reduce((acc, r) => [acc[0] + r[2], acc[1] + r[3]], [0, 0]);
+  out.push(['Total', '', total[0], total[1]]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, xlsxSheet(['Día', 'Día de la semana', 'Reservas (sin canceladas)', 'Comensales'], out), 'Mes');
+  XLSX.writeFile(wb, `reservas-mes-${restaurantSlug()}-${from.slice(0, 7)}.xlsx`, { compression: true });
 }
 
 window.addEventListener('DOMContentLoaded', async () => {
@@ -822,6 +875,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('moveModalSaveBtn').addEventListener('click', saveMoveModal);
 
   $('monthViewBtn').addEventListener('click', openMonthView);
+  $('dayXlsxBtn').addEventListener('click', downloadDayXlsx);
+  $('monthXlsxBtn').addEventListener('click', downloadMonthXlsx);
   $('closeMonthBtn').addEventListener('click', closeMonthView);
   $('prevMonthBtn').addEventListener('click', () => shiftMonth(-1));
   $('nextMonthBtn').addEventListener('click', () => shiftMonth(1));

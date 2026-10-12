@@ -63,7 +63,10 @@
   <section class="cfg-card" id="dashCard">
     <div class="cfg-card-header">
       <h2>Resumen del periodo</h2>
-      <span class="dash-scope" id="dashScope"></span>
+      <div class="dash-head-right">
+        <span class="dash-scope" id="dashScope"></span>
+        <button class="btn btn-secondary dash-xlsx" type="button" id="dashXlsx" disabled>Excel</button>
+      </div>
     </div>
     <div class="kpi-grid" id="kpis"></div>
     <p class="cfg-hint dash-note">Reservas y comensales sin contar canceladas ni no show.</p>
@@ -99,7 +102,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script src="/vendor/xlsx.full.min.js" defer></script>
 <script src="/admin/authbar.js"></script>
 <script src="/admin/informes.js"></script>
 </body>

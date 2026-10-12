@@ -56,6 +56,8 @@
 
 /* --- Panel visual (Resumen del periodo) --- */
 .dash-scope { font-size: 13px; color: var(--text-muted); }
+.dash-head-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dash-xlsx { padding: 6px 12px; font-size: 13px; }
 .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 6px; }
 .kpi { background: var(--bg); border-radius: 10px; padding: 12px 14px; min-width: 0; }
 .kpi-label { font-size: 12px; color: var(--text-muted); }
