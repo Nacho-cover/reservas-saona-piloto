@@ -637,6 +637,9 @@ async function saveMoveModal() {
 // Desplegable en vez de <input type="time">: evita el selector nativo del
 // navegador (deja escoger cualquier minuto y "sobresale" de la ventana) y
 // solo permite tramos de 15 min, iguales a los que ya usa la reserva online.
+// Las horas salen del horario real del local para la fecha elegida (turnos de ese día,
+// excepciones por fecha y cierres), con la misma última hora que la web. La casilla
+// "Fuera de horario" vuelve a dar todas las horas del día para casos excepcionales.
 function populateTimeSelect() {
   const sel = $('mTime');
   sel.innerHTML = '<option value="">Elige una hora</option>';
@@ -651,6 +654,59 @@ function populateTimeSelect() {
   }
 }
 
+let slotsRequest = 0;
+async function loadModalSlots() {
+  const sel = $('mTime');
+  const hint = $('mTimeHint');
+  const previous = sel.value;
+  if ($('mAnyTime').checked) {
+    populateTimeSelect();
+    hint.textContent = 'Todas las horas del día (fuera del horario del local).';
+    if (previous) sel.value = previous;
+    return;
+  }
+  const date = $('mDate').value;
+  if (!date) { sel.innerHTML = '<option value="">Elige primero la fecha</option>'; hint.textContent = ''; return; }
+  const reqId = ++slotsRequest;
+  sel.innerHTML = '<option value="">Cargando horario…</option>';
+  sel.disabled = true;
+  try {
+    const res = await fetch(`/api/shifts/slots?restaurantId=${RESTAURANT_ID}&date=${date}`);
+    const data = await res.json();
+    if (reqId !== slotsRequest) return; // se cambió la fecha mientras tanto
+    if (!res.ok) throw new Error(data.error || 'No se pudo cargar el horario');
+    sel.innerHTML = '<option value="">Elige una hora</option>';
+    const withSlots = data.shifts.filter(s => s.slots.length);
+    for (const s of withSlots) {
+      const group = document.createElement('optgroup');
+      group.label = `${s.name} (${s.start}–${s.lastSeating})${s.closed ? ' · web cerrada' : ''}`;
+      for (const t of s.slots) {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t;
+        group.appendChild(opt);
+      }
+      sel.appendChild(group);
+    }
+    if (!withSlots.length) {
+      sel.innerHTML = '<option value="">El local no abre ese día</option>';
+      hint.textContent = 'No hay turnos ese día. Marca «Fuera de horario» si aun así hay que apuntarla.';
+    } else {
+      const closedNames = withSlots.filter(s => s.closed).map(s => s.name.toLowerCase());
+      hint.textContent = closedNames.length
+        ? `Ese día la reserva web está cerrada en ${closedNames.join(' y ')}; por teléfono se puede apuntar igual.`
+        : '';
+    }
+    if (previous && [...sel.options].some(o => o.value === previous)) sel.value = previous;
+  } catch (err) {
+    if (reqId !== slotsRequest) return;
+    populateTimeSelect();
+    hint.textContent = 'No se pudo cargar el horario del local; se muestran todas las horas.';
+  } finally {
+    if (reqId === slotsRequest) sel.disabled = false;
+  }
+}
+
 function openModal(table) {
   // Con mesa (desde la ficha de mesa del plano) la reserva va a esa mesa; sin mesa
   // se asigna sola, como siempre.
@@ -661,10 +717,12 @@ function openModal(table) {
   $('mEmail').value = '';
   $('mDate').value = state.date;
   $('mTime').value = '';
+  $('mAnyTime').checked = false;
   $('mParty').value = 2;
   $('mNotes').value = '';
   $('modalError').textContent = '';
   $('modalBackdrop').classList.remove('hidden');
+  loadModalSlots();
 }
 function closeModal() {
   $('modalBackdrop').classList.add('hidden');
@@ -894,6 +952,8 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   $('openNewBtn').addEventListener('click', () => openModal());
   $('modalCancelBtn').addEventListener('click', closeModal);
+  $('mDate').addEventListener('change', loadModalSlots);
+  $('mAnyTime').addEventListener('change', loadModalSlots);
   $('modalSaveBtn').addEventListener('click', saveModal);
 
   $('moveModalCancelBtn').addEventListener('click', closeMoveModal);

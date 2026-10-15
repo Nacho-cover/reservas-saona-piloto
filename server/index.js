@@ -571,6 +571,28 @@ app.get('/api/shifts', can('reservations'), requireRestaurant, async (req, res) 
   res.json(rows);
 });
 
+// Horas reservables de una fecha para "Nueva reserva" del panel: las franjas del horario
+// real del local ese día (plantilla semanal + excepción por fecha), con el mismo intervalo
+// y la misma última hora que la web. Los turnos con el motor web cerrado ese día se
+// devuelven marcados (el personal puede seguir anotando por teléfono).
+app.get('/api/shifts/slots', can('reservations'), requireRestaurant, async (req, res) => {
+  const { date } = req.query;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return res.status(400).json({ error: 'Fecha no válida' });
+  const restaurant = req.restaurant;
+  const dayClosed = await availability.isClosed(restaurant.id, date);
+  const closed = await availability.closedShifts(restaurant.id, date);
+  const shifts = await availability.getShiftsForDate(restaurant.id, date);
+  const step = restaurant.slot_interval_minutes || 15;
+  const out = shifts.map(s => {
+    const start = availability.toMinutes(s.start_time);
+    const last = availability.toMinutes(s.end_time) - (s.last_seating_offset_minutes || 0);
+    const slots = [];
+    for (let t = start; t <= last; t += step) slots.push(availability.toHHMM(t));
+    return { name: s.name, start: s.start_time, lastSeating: availability.toHHMM(last), closed: dayClosed || closed.has(s.name), slots };
+  });
+  res.json({ date, dayClosed, shifts: out });
+});
+
 // Crea o actualiza el turno de un día de la semana concreto (mismo nombre +
 // mismo day_of_week = se actualiza en vez de duplicarse).
 app.post('/api/shifts', can('schedule'), requireRestaurant, async (req, res) => {

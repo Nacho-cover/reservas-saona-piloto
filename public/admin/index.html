@@ -90,6 +90,10 @@
       <label class="field"><span>Hora</span><select id="mTime"></select></label>
       <label class="field"><span>Comensales</span><input type="number" id="mParty" min="1" value="2"></label>
     </div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:-4px 0 12px;font-size:12px;color:var(--text-muted)">
+      <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="mAnyTime"> Fuera de horario</label>
+      <span id="mTimeHint"></span>
+    </div>
     <label class="field"><span>Notas</span><textarea id="mNotes" rows="2"></textarea></label>
     <p class="error" id="modalError"></p>
     <div class="modal-actions">
