@@ -658,6 +658,7 @@ function openModal(table) {
   $('modalTitle').textContent = state.modalTable ? `Nueva reserva · mesa ${state.modalTable.name}` : 'Nueva reserva (teléfono)';
   $('mName').value = '';
   $('mPhone').value = '';
+  $('mEmail').value = '';
   $('mDate').value = state.date;
   $('mTime').value = '';
   $('mParty').value = 2;
@@ -673,6 +674,7 @@ function closeModal() {
 async function saveModal() {
   const customerName = $('mName').value.trim();
   const phone = $('mPhone').value.trim();
+  const email = $('mEmail').value.trim();
   const date = $('mDate').value;
   const time = $('mTime').value;
   const partySize = Number($('mParty').value);
@@ -680,6 +682,10 @@ async function saveModal() {
 
   if (!customerName || !date || !time || !partySize) {
     $('modalError').textContent = 'Completa nombre, fecha, hora y comensales.';
+    return;
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    $('modalError').textContent = 'El email no parece correcto. Revísalo o déjalo en blanco.';
     return;
   }
 
@@ -698,7 +704,7 @@ async function saveModal() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        restaurantId: RESTAURANT_ID, customerName, phone, partySize, date, time, notes, source: 'phone', ...tablePart,
+        restaurantId: RESTAURANT_ID, customerName, phone, email: email || undefined, partySize, date, time, notes, source: 'phone', ...tablePart,
       }),
     });
     const data = await res.json();

@@ -377,7 +377,9 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
 
   // No se espera a que termine de enviarse (la reserva ya está confirmada y no debe
   // depender de que el email salga bien o mal) — se manda en paralelo a responder.
-  if (bookingSource === 'web' || bookingSource === 'app') {
+  // Las reservas telefónicas también la reciben si el personal ha anotado un email
+  // (los walk-in no: el cliente ya está sentado).
+  if (reservation.email && !isWalkIn) {
     sendConfirmationEmail({ restaurant, reservation, zoneNames }).catch(() => {});
   }
 
