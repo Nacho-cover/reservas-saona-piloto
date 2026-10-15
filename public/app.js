@@ -155,9 +155,12 @@ function renderSlots(slots) {
     groups[s.shift].push(s);
   }
 
+  state.slots = slots;
   const container = $('shiftGroups');
   container.innerHTML = '';
   const hasAny = slots.some(s => s.available);
+  // Lista de espera: si alguna hora está completa (y el día tiene horas), se ofrece.
+  $('waitlistCta').classList.toggle('hidden', !slots.some(s => !s.available));
   $('noSlotsMsg').classList.toggle('hidden', hasAny || slots.length === 0);
   if (slots.length === 0) $('noSlotsMsg').classList.remove('hidden');
 
@@ -174,8 +177,8 @@ function renderSlots(slots) {
       const btn = document.createElement('button');
       btn.className = 'slot-btn' + (s.available ? '' : ' unavailable');
       btn.textContent = s.time;
-      btn.disabled = !s.available;
-      btn.addEventListener('click', () => selectSlot(s.time, btn));
+      if (!s.available) btn.title = 'Completo: toca para apuntarte a la lista de espera';
+      btn.addEventListener('click', () => (s.available ? selectSlot(s.time, btn) : openWaitlist(s.time)));
       grid.appendChild(btn);
     }
     group.appendChild(grid);
@@ -303,11 +306,15 @@ async function confirmReservation() {
   }
 }
 
-function goToRedsys({ url, fields }) {
+function goToRedsys({ url, fields }, formId = 'redsysForm') {
   state.redirecting = true;
-  $('confirmBtn').textContent = 'Abriendo la pasarela segura…';
-  $('formError').innerHTML = '<span class="redirect-note">Te llevamos a la pasarela de pago del banco. Tienes 20 minutos para completarla; después la mesa se libera.</span>';
-  const form = $('redsysForm');
+  if (formId === 'redsysForm') {
+    $('confirmBtn').textContent = 'Abriendo la pasarela segura…';
+    $('formError').innerHTML = '<span class="redirect-note">Te llevamos a la pasarela de pago del banco. Tienes 20 minutos para completarla; después la mesa se libera.</span>';
+  } else {
+    $('offerAcceptBtn').textContent = 'Abriendo la pasarela segura…';
+  }
+  const form = $(formId);
   form.action = url;
   form.innerHTML = '';
   for (const [k, v] of Object.entries(fields)) {
@@ -352,6 +359,157 @@ async function handleRedsysReturn() {
   return true;
 }
 
+// --- Lista de espera ---------------------------------------------------------------
+function openWaitlist(time) {
+  const sel = $('wlTime');
+  sel.innerHTML = '';
+  for (const s of (state.slots || []).filter(x => !x.available)) {
+    const o = document.createElement('option');
+    o.value = s.time; o.textContent = `${s.time} (${s.shift.toLowerCase()})`;
+    sel.appendChild(o);
+  }
+  if (time) sel.value = time;
+  else { const firstFull = (state.slots || []).find(s => !s.available); if (firstFull) sel.value = firstFull.time; }
+  $('wlSummary').textContent = `${partyWord()} · ${dateFmtLong()}. Si se libera una mesa a esa hora te avisamos y tendrás unos minutos para confirmarla.`;
+  for (const [from, to] of [['nameInput', 'wlName'], ['phoneInput', 'wlPhone'], ['emailInput', 'wlEmail']]) if (!$(to).value) $(to).value = $(from).value;
+  $('wlError').textContent = '';
+  showStep('step-waitlist');
+}
+
+async function submitWaitlist() {
+  $('wlError').textContent = '';
+  const body = {
+    restaurantId: RESTAURANT_ID, date: state.date, time: $('wlTime').value, partySize: state.partySize,
+    customerName: $('wlName').value.trim(), phone: $('wlPhone').value.trim(), email: $('wlEmail').value.trim(),
+    consentAccepted: $('wlConsent').checked,
+  };
+  if (!body.customerName) { $('wlError').textContent = 'Indica tu nombre.'; return; }
+  if (!body.phone) { $('wlError').textContent = 'Indica un teléfono: te avisaremos por WhatsApp.'; return; }
+  if (!body.consentAccepted) { $('wlError').textContent = 'Debes aceptar el tratamiento de datos.'; return; }
+  const btn = $('wlSubmitBtn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo apuntar a la lista');
+    $('wlOkText').textContent = `${dateFmtLong()} · ${body.time}h · ${partyWord()}. Si se libera una mesa te avisaremos por ${data.channel === 'email' ? 'email' : 'WhatsApp'} al momento, y tendrás unos minutos para confirmarla.`;
+    showStep('step-waitlist-ok');
+  } catch (err) {
+    $('wlError').textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function showMessage(title, text, icon = 'ℹ') {
+  $('msgTitle').textContent = title;
+  $('msgText').textContent = text;
+  $('msgIcon').textContent = icon;
+  showStep('step-message');
+}
+
+// Oferta de mesa (enlace /l/... del aviso): /?lista=ID&k=CLAVE
+let offerTimer = null;
+async function handleWaitlistOffer() {
+  const q = new URLSearchParams(location.search);
+  if (!q.get('lista') || !q.get('k')) return false;
+  const id = q.get('lista'); const k = q.get('k');
+  history.replaceState(null, '', location.pathname + (q.get('restaurantId') ? '?restaurantId=' + q.get('restaurantId') : ''));
+  const res = await fetch(`/api/public/waitlist/${encodeURIComponent(id)}?k=${encodeURIComponent(k)}`);
+  if (!res.ok) { showMessage('Enlace no válido', 'Este enlace de la lista de espera no es válido.', '!'); return true; }
+  const w = await res.json();
+  if (w.status === 'accepted') { showMessage('Mesa ya confirmada', 'Ya confirmaste esta mesa. ¡Te esperamos!', '✓'); return true; }
+  if (w.status !== 'offered') {
+    showMessage('La oferta ha caducado', `Lo sentimos, el tiempo para confirmar la mesa se ha agotado y se ha ofrecido a la siguiente persona. ${w.status === 'expired' ? 'Puedes volver a apuntarte o llamarnos' + (w.restaurant.phone ? ' al ' + w.restaurant.phone : '') + '.' : ''}`, '⌛');
+    return true;
+  }
+  state.restaurant = { ...(state.restaurant || {}), ...w.restaurant };
+  state.partySize = w.partySize;
+  const dateFmt = new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('offerBox').innerHTML = `<strong>${w.restaurant.name}</strong><br>${dateFmt} · ${w.offerTime}h<br>${w.partySize} ${w.partySize === 1 ? 'persona' : 'personas'}<br>A nombre de: ${w.customerName}`;
+  const g = w.restaurant.guarantee_enabled;
+  $('offerGuarantee').classList.toggle('hidden', !g);
+  if (g) {
+    const per = w.restaurant.guarantee_fee_cents || 0;
+    $('offerGuaranteeText').innerHTML = `Para confirmar te pediremos una tarjeta en la pasarela segura del banco. <b>No se cobra nada ahora.</b> Si no vienes o cancelas con menos de <b>${w.restaurant.guarantee_free_cancel_hours} h</b>, se cobrarán <b>${eurosTxt(per)} por persona</b> (${eurosTxt(per * w.partySize)} en total).`;
+    $('offerAcceptBtn').textContent = 'Confirmar y dejar tarjeta';
+  }
+  // Cuenta atrás con la hora del servidor (España), no la del móvil.
+  const offset = Date.now() - new Date(w.nowMadrid.replace(' ', 'T') + 'Z').getTime();
+  const expires = new Date(w.offerExpiresAt.replace(' ', 'T') + 'Z').getTime() + offset;
+  clearInterval(offerTimer);
+  const tick = () => {
+    const left = Math.max(0, expires - Date.now());
+    const m = Math.floor(left / 60000); const sec = Math.floor((left % 60000) / 1000);
+    $('offerTimer').textContent = left > 0 ? `Tienes ${m}:${String(sec).padStart(2, '0')} min para confirmarla` : 'El tiempo para confirmar se ha agotado';
+    $('offerAcceptBtn').disabled = left <= 0;
+    if (left <= 0) clearInterval(offerTimer);
+  };
+  tick(); offerTimer = setInterval(tick, 1000);
+
+  $('offerAcceptBtn').onclick = async () => {
+    $('offerError').textContent = '';
+    if (g && !$('offerPolicy').checked) { $('offerError').textContent = 'Debes aceptar la política de cancelación.'; return; }
+    $('offerAcceptBtn').disabled = true;
+    try {
+      const r = await fetch('/api/reservations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        restaurantId: w.restaurant.id, customerName: w.customerName, phone: w.phone, email: w.email,
+        partySize: w.partySize, date: w.date, time: w.offerTime, source: 'web', consentAccepted: true,
+        waitlistId: w.id, waitlistKey: k,
+      }) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'No se pudo confirmar la mesa');
+      clearInterval(offerTimer);
+      if (data.redsys) { goToRedsys(data.redsys, 'redsysForm2'); return; }
+      showConfirmation({ ...data, restaurant_name: w.restaurant.name, customer_name: w.customerName });
+    } catch (err) {
+      $('offerError').textContent = err.message.includes('email') ? 'Para confirmar online necesitamos tu email. Llámanos y te la apuntamos.' : err.message;
+      $('offerAcceptBtn').disabled = false;
+    }
+  };
+  $('offerLeaveBtn').onclick = async () => {
+    if (!confirm('¿Quitarte de la lista de espera?')) return;
+    await fetch(`/api/public/waitlist/${encodeURIComponent(id)}/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ k }) });
+    clearInterval(offerTimer);
+    showMessage('Te hemos quitado de la lista', 'Gracias por avisarnos. ¡Esperamos verte pronto!', '✓');
+  };
+  showStep('step-offer');
+  return true;
+}
+
+// Gestionar la reserva (enlace /r/... del recordatorio): /?gestion=ID&k=CLAVE
+async function handleManage() {
+  const q = new URLSearchParams(location.search);
+  if (!q.get('gestion') || !q.get('k')) return false;
+  const id = q.get('gestion'); const k = q.get('k');
+  history.replaceState(null, '', location.pathname + (q.get('restaurantId') ? '?restaurantId=' + q.get('restaurantId') : ''));
+  const res = await fetch(`/api/public/manage/${encodeURIComponent(id)}?k=${encodeURIComponent(k)}`);
+  if (!res.ok) { showMessage('Enlace no válido', 'No encontramos esta reserva.', '!'); return true; }
+  const render = (d) => {
+    const dateFmt = new Date(d.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+    const st = d.status === 'cancelled' ? '<br><b style="color:var(--danger)">Reserva cancelada</b>'
+      : (d.customer_confirmed_at ? '<br><b style="color:#1e7a34">✓ Asistencia confirmada</b>' : '');
+    $('manageBox').innerHTML = `<strong>${d.restaurant_name}</strong><br>${dateFmt} · ${d.time}h<br>${d.party_size} ${d.party_size === 1 ? 'persona' : 'personas'}<br>A nombre de: ${d.customer_name}${st}`;
+    $('manageActions').classList.toggle('hidden', !d.canChange);
+    $('manageConfirmBtn').classList.toggle('hidden', !!d.customer_confirmed_at);
+    $('manageNote').textContent = d.canChange
+      ? (d.lateCancelPenaltyCents ? `Atención: quedan menos de ${d.freeCancelHours} h para la reserva; si cancelas ahora se podrá cobrar la penalización de ${eurosTxt(d.lateCancelPenaltyCents)}.` : 'Si no puedes venir, cancela para que otra persona pueda disfrutar de la mesa.')
+      : (d.status === 'cancelled' ? '' : `Para cualquier cambio, llámanos${d.restaurant_phone ? ' al ' + d.restaurant_phone : ''}.`);
+  };
+  render(await res.json());
+  const call = async (action) => {
+    $('manageError').textContent = '';
+    const r = await fetch(`/api/public/manage/${encodeURIComponent(id)}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ k }) });
+    const d = await r.json();
+    if (!r.ok) { $('manageError').textContent = d.error || 'No se pudo completar'; return; }
+    render(d);
+  };
+  $('manageConfirmBtn').onclick = () => call('confirm');
+  $('manageCancelBtn').onclick = () => { if (confirm('¿Seguro que quieres cancelar la reserva?')) call('cancel'); };
+  showStep('step-manage');
+  return true;
+}
+
 function resetFlow() {
   $('nameInput').value = '';
   $('phoneInput').value = '';
@@ -376,6 +534,17 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('confirmBtn').addEventListener('click', confirmReservation);
   $('newReservationBtn').addEventListener('click', resetFlow);
   $('retryAfterCardBtn').addEventListener('click', resetFlow);
+  $('openWaitlistBtn').addEventListener('click', () => openWaitlist(null));
+  $('backToSlotsFromWl').addEventListener('click', () => showStep('step-slots'));
+  $('wlSubmitBtn').addEventListener('click', submitWaitlist);
+  $('wlDoneBtn').addEventListener('click', resetFlow);
+  $('msgBtn').addEventListener('click', resetFlow);
+  if (new URLSearchParams(location.search).get('enlace') === 'caducado') {
+    history.replaceState(null, '', location.pathname);
+    showMessage('Enlace no válido', 'Este enlace ya no es válido. Puedes hacer una reserva nueva o llamarnos.', '!');
+  }
+  await handleWaitlistOffer();
+  await handleManage();
   $('partySizeInput').addEventListener('change', () => { if (!$('step-form').classList.contains('hidden')) renderGuarantee(); });
   await handleRedsysReturn();
   // Si el cliente vuelve atrás desde la pasarela, el botón se reactiva (la mesa sigue

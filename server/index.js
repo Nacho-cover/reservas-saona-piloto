@@ -43,6 +43,11 @@ async function sendConfirmationFor(reservation) {
 }
 app.use('/api', guarantee.makeRouter({ sendConfirmation: sendConfirmationFor }));
 
+// Lista de espera, gestión de la reserva por el cliente, recordatorio del día antes y
+// avisos por WhatsApp/email — ver server/waitlist.js y server/notify.js.
+const waitlist = require('./waitlist');
+app.use(waitlist.makeRouter());
+
 // --- Helpers -----------------------------------------------------------
 async function getRestaurant(id) {
   const { rows } = await db.query('SELECT * FROM restaurants WHERE id = $1', [id]);
@@ -308,7 +313,15 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
     if (!consentAccepted) {
       return res.status(400).json({ error: 'Debes aceptar las condiciones de tratamiento de datos para reservar.' });
     }
-    if (!email) {
+    // Quien confirma una mesa ofrecida desde la lista de espera puede no haber dejado email
+    // (p. ej. lo apuntó el personal por teléfono): el aviso le llegó por WhatsApp.
+    let fromWaitlist = false;
+    if (req.body.waitlistId && req.body.waitlistKey) {
+      const { rows: wl } = await db.query(`SELECT 1 FROM waitlist WHERE id = $1 AND access_key = $2 AND status = 'offered'
+        AND restaurant_id = $3`, [Number(req.body.waitlistId), String(req.body.waitlistKey), restaurant.id]);
+      fromWaitlist = wl.length > 0;
+    }
+    if (!email && !fromWaitlist) {
       return res.status(400).json({ error: 'Indica un email para poder enviarte la confirmación de la reserva.' });
     }
     // Lista negra o no-show anterior (en cualquier local del grupo): no se reserva por la
@@ -409,6 +422,11 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
   // depender de que el email salga bien o mal) — se manda en paralelo a responder.
   // Las reservas telefónicas también la reciben si el personal ha anotado un email
   // (los walk-in no: el cliente ya está sentado).
+  if (req.body.waitlistId && req.body.waitlistKey) {
+    await waitlist.markAccepted({ waitlistId: req.body.waitlistId, waitlistKey: req.body.waitlistKey,
+      reservationId: reservation.id, restaurantId: restaurant.id, date });
+  }
+
   if (needsCard) {
     // La confirmación por email sale cuando Redsys confirma la tarjeta.
     let started;
@@ -442,7 +460,7 @@ app.get('/api/reservations', can('reservations'), requireRestaurant, async (req,
     ({ rows } = await db.query(`SELECT r.*, ${guarantee.PENALTY_ELIGIBLE_SQL} AS penalty_eligible FROM reservations r WHERE r.restaurant_id = $1 ORDER BY r.date DESC, r.time`, [req.restaurant.id]));
   }
   // La referencia de la tarjeta y la clave pública de la reserva no salen al panel.
-  for (const r of rows) { delete r.card_token; delete r.card_cof_txnid; delete r.guarantee_key; }
+  for (const r of rows) { delete r.card_token; delete r.card_cof_txnid; delete r.guarantee_key; delete r.manage_key; }
   if (!rows.length) return res.json([]);
   // Una sola consulta con IN(...) para todas las reservas del día, en vez de una
   // por reserva (con muchas reservas a la vez, el pooler de Supabase tiene un
@@ -517,6 +535,8 @@ app.patch('/api/reservations/:id', can('reservations'), ownsRow('reservations'),
     WHERE id = $5
   `, [status || null, notes ?? null, paidAt, cancelledByValue, req.params.id, markCancelledAt]);
   const { rows } = await db.query('SELECT * FROM reservations WHERE id = $1', [req.params.id]);
+  // Se ha liberado sitio: se avisa al primero de la lista de espera que encaje.
+  if (markCancelledAt) waitlist.onReservationFreed(existing.restaurant_id, existing.date, req);
   res.json(rows[0]);
 });
 
@@ -526,6 +546,7 @@ app.delete('/api/reservations/:id', can('reservations'), ownsRow('reservations')
   if (!existingRows.length) return res.status(404).json({ error: 'Reserva no encontrada' });
   await db.query(`UPDATE reservations SET status = 'cancelled',
     cancelled_at = COALESCE(cancelled_at, to_char(now(), 'YYYY-MM-DD HH24:MI:SS')) WHERE id = $1`, [req.params.id]);
+  waitlist.onReservationFreed(existingRows[0].restaurant_id, existingRows[0].date, req);
   res.json({ ok: true });
 });
 

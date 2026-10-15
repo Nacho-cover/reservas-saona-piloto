@@ -59,6 +59,7 @@ async function loadReservations() {
   state.tables = await tablesRes.json();
   state.closures = await closuresRes.json();
   render();
+  if (typeof loadWaitlist === 'function') loadWaitlist();
 }
 
 // --- Cerrar/abrir un turno concreto (deja de aceptar reservas online nuevas ese
@@ -239,7 +240,7 @@ function renderRow(r) {
   info.className = 'res-info';
   info.innerHTML = `
     <div class="res-name">${r.phone ? `<button type="button" class="res-cust-link" title="Ver ficha del cliente">${escapeHtml(r.customer_name)}</button>` : escapeHtml(r.customer_name)} · ${r.party_size}p ${r.tables && r.tables.length ? `· Mesa ${r.tables.join(', ')}` : ''}</div>
-    ${customerChips(r.customer)}${guaranteeChips(r)}
+    ${customerChips(r.customer)}${guaranteeChips(r)}${reminderChips(r)}
     <div class="res-meta">${r.phone || ''} ${r.notes ? '· ' + escapeHtml(r.notes) : ''}</div>
   `;
   info.querySelector('.res-cust-link')?.addEventListener('click', () => openCustomerCard(r.phone, loadReservations));

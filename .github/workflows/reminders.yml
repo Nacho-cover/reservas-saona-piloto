@@ -1,0 +1,17 @@
+name: Recordatorio de reservas (día antes)
+
+# Una vez al día (16:00 UTC ≈ 17:00-18:00 hora de España) manda por WhatsApp (o email si
+# WhatsApp no está configurado) el recordatorio a quien tiene reserva mañana, con enlace
+# para confirmar asistencia o cancelar. Se puede lanzar a mano desde "Actions".
+on:
+  schedule:
+    - cron: '0 16 * * *'
+  workflow_dispatch:
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar al endpoint de recordatorios
+        run: |
+          curl -sf --max-time 120 "https://reservas-saona-piloto.onrender.com/api/cron/send-reminders?key=${{ secrets.CRON_SECRET }}"

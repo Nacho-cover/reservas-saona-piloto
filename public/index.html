@@ -58,7 +58,72 @@
       <h2>Horas disponibles</h2>
       <p class="muted" id="slotsSummary"></p>
       <div id="shiftGroups"></div>
-      <p class="empty-msg hidden" id="noSlotsMsg">No quedan mesas libres ese día para ese número de comensales. Prueba otra fecha o llama al restaurante.</p>
+      <p class="empty-msg hidden" id="noSlotsMsg">No quedan mesas libres ese día para ese número de comensales. Prueba otra fecha o apúntate a la lista de espera.</p>
+      <div class="waitlist-cta hidden" id="waitlistCta">
+        <p>¿Tu hora está completa? <b>Apúntate a la lista de espera</b> y te avisamos por WhatsApp si se libera una mesa.</p>
+        <button class="btn btn-secondary" id="openWaitlistBtn">Apuntarme a la lista de espera</button>
+      </div>
+    </section>
+
+    <!-- Lista de espera: apuntarse -->
+    <section id="step-waitlist" class="card step hidden">
+      <button class="btn-link" id="backToSlotsFromWl">&larr; Volver a las horas</button>
+      <h2>Lista de espera</h2>
+      <p class="muted" id="wlSummary"></p>
+      <label class="field"><span>Hora (completa)</span><select id="wlTime"></select></label>
+      <label class="field"><span>Nombre y apellidos</span><input type="text" id="wlName" placeholder="Nombre"></label>
+      <label class="field"><span>Teléfono (te avisamos por WhatsApp)</span><input type="tel" id="wlPhone" placeholder="600 000 000"></label>
+      <label class="field"><span>Email (opcional)</span><input type="email" id="wlEmail" placeholder="tu@email.com"></label>
+      <label class="consent-field">
+        <input type="checkbox" id="wlConsent">
+        <span>Acepto el tratamiento de mis datos para gestionar la lista de espera y recibir el aviso por WhatsApp o email.</span>
+      </label>
+      <button class="btn btn-primary" id="wlSubmitBtn">Apuntarme</button>
+      <p class="error" id="wlError"></p>
+    </section>
+
+    <section id="step-waitlist-ok" class="card step hidden">
+      <div class="confirm-icon">⏳</div>
+      <h2 class="center">Estás en la lista de espera</h2>
+      <p class="muted center" id="wlOkText"></p>
+      <button class="btn btn-secondary" id="wlDoneBtn">Volver al inicio</button>
+    </section>
+
+    <!-- Oferta de mesa desde la lista de espera (enlace del aviso) -->
+    <section id="step-offer" class="card step hidden">
+      <div class="confirm-icon">🎉</div>
+      <h2 class="center">¡Se ha liberado una mesa!</h2>
+      <div class="confirm-box" id="offerBox"></div>
+      <p class="offer-timer" id="offerTimer"></p>
+      <div class="guarantee-box hidden" id="offerGuarantee">
+        <div class="guarantee-title">💳 Reserva con tarjeta de garantía</div>
+        <p id="offerGuaranteeText"></p>
+        <label class="consent-field"><input type="checkbox" id="offerPolicy"><span>Acepto la política de cancelación de esta reserva.</span></label>
+      </div>
+      <button class="btn btn-primary" id="offerAcceptBtn">Confirmar la mesa</button>
+      <button class="btn-link center-link" id="offerLeaveBtn">No me interesa, quitarme de la lista</button>
+      <p class="error" id="offerError"></p>
+      <form id="redsysForm2" method="POST" class="hidden"></form>
+    </section>
+
+    <!-- Gestionar la reserva (enlace del recordatorio) -->
+    <section id="step-manage" class="card step hidden">
+      <h2>Tu reserva</h2>
+      <div class="confirm-box" id="manageBox"></div>
+      <div id="manageActions">
+        <button class="btn btn-primary" id="manageConfirmBtn">Confirmo que voy</button>
+        <button class="btn btn-secondary" id="manageCancelBtn">Cancelar la reserva</button>
+      </div>
+      <p class="muted" id="manageNote"></p>
+      <p class="error" id="manageError"></p>
+    </section>
+
+    <!-- Mensaje genérico (enlace caducado, oferta vencida…) -->
+    <section id="step-message" class="card step hidden">
+      <div class="confirm-icon" id="msgIcon">ℹ</div>
+      <h2 class="center" id="msgTitle"></h2>
+      <p class="muted center" id="msgText"></p>
+      <button class="btn btn-secondary" id="msgBtn">Hacer una reserva</button>
     </section>
 
     <!-- STEP 3: contact form -->
@@ -84,7 +149,7 @@
       </label>
       <label class="consent-field">
         <input type="checkbox" id="consentInput">
-        <span>Acepto el tratamiento de mis datos para gestionar esta reserva y que el restaurante me contacte sobre ella. Ver <a href="#" id="legalLink">condiciones de uso y política de privacidad</a>.</span>
+        <span>Acepto el tratamiento de mis datos para gestionar esta reserva y que el restaurante me contacte sobre ella (por ejemplo, un recordatorio por WhatsApp o email). Ver <a href="#" id="legalLink">condiciones de uso y política de privacidad</a>.</span>
       </label>
       <!-- Garantía con tarjeta (solo locales que la tienen activada) -->
       <div class="guarantee-box hidden" id="guaranteeBox">

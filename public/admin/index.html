@@ -72,6 +72,41 @@
   </div>
 
   <div class="shift-columns" id="shiftColumns"></div>
+
+  <!-- Lista de espera del día -->
+  <div class="shift-col wl-panel" id="wlPanel">
+    <div class="wl-head">
+      <h3>Lista de espera <span class="wl-count" id="wlCount"></span></h3>
+      <button class="btn btn-secondary btn-sm" id="wlAddBtn">+ Apuntar a la lista</button>
+    </div>
+    <p class="wl-hint" id="wlHint"></p>
+    <div id="wlList"></div>
+  </div>
+</div>
+
+<!-- Modal: apuntar a la lista de espera -->
+<div class="modal-backdrop hidden" id="wlBackdrop">
+  <div class="modal">
+    <h2>Apuntar a la lista de espera</h2>
+    <div class="field-row">
+      <label class="field"><span>Nombre</span><input type="text" id="wlmName"></label>
+      <label class="field"><span>Teléfono (WhatsApp)</span><input type="tel" id="wlmPhone"></label>
+    </div>
+    <div class="field-row">
+      <label class="field"><span>Email (opcional)</span><input type="email" id="wlmEmail"></label>
+    </div>
+    <div class="field-row">
+      <label class="field"><span>Fecha</span><input type="date" id="wlmDate"></label>
+      <label class="field"><span>Hora que prefiere</span><select id="wlmTime"></select></label>
+      <label class="field"><span>Comensales</span><input type="number" id="wlmParty" min="1" value="2"></label>
+    </div>
+    <label class="field"><span>Notas</span><textarea id="wlmNotes" rows="2"></textarea></label>
+    <p class="error" id="wlmError"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="wlmCancel">Cancelar</button>
+      <button class="btn btn-primary" id="wlmSave">Apuntar</button>
+    </div>
+  </div>
 </div>
 
 <!-- Modal: new / edit reservation -->
@@ -131,6 +166,7 @@
   <div class="modal cust-modal" id="custSheet"></div>
 </div>
 <script src="/admin/cliente.js"></script>
+<script src="/admin/listaespera.js"></script>
 <script src="/admin/admin.js"></script>
 </body>
 </html>

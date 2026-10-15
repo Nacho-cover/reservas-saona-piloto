@@ -136,7 +136,8 @@ h2 { font-size: 22px; margin: 0 0 4px; }
 }
 .slot-btn:hover { border-color: var(--brand); }
 .slot-btn.selected { background: var(--brand); color: white; border-color: var(--brand); }
-.slot-btn.unavailable { color: #c3c6cc; background: #f1efe9; cursor: not-allowed; text-decoration: line-through; }
+.slot-btn.unavailable { color: #b0b4bb; background: #f1efe9; text-decoration: line-through; }
+.slot-btn.unavailable:hover { border-color: #c9c5b8; text-decoration: none; color: var(--text-muted, #65728a); }
 
 .empty-msg { color: var(--text-muted); font-size: 14px; }
 
@@ -326,3 +327,11 @@ h2 { font-size: 22px; margin: 0 0 4px; }
 .confirm-note { font-size: 13px; color: var(--text-muted, #65728a); margin: -6px 0 16px; }
 .redirect-note { font-size: 13.5px; color: var(--text-muted, #65728a); margin-top: 8px; }
 #step-card-failed h2, #step-card-failed p { text-align: center; }
+
+/* Lista de espera, oferta y gestión de la reserva */
+.waitlist-cta { border: 1px dashed var(--border, #d9d5c9); border-radius: 12px; padding: 12px 14px; margin-top: 14px; }
+.waitlist-cta p { margin: 0 0 10px; font-size: 13.5px; color: var(--text-muted, #65728a); }
+.center { text-align: center; }
+.center-link { display: block; margin: 12px auto 0; }
+.offer-timer { text-align: center; font-weight: 700; color: var(--brand-dark, #152b4e); margin: -6px 0 14px; }
+#manageActions { display: grid; gap: 10px; }

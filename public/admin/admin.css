@@ -284,3 +284,17 @@ button, input, select, textarea { font-family: inherit; }
 .cchip-failed { background: #fde4e4; color: #a01010; border-color: #f2a6a6; }
 .res-actions .btn-charge { background: #152b4e; color: #fff; font-weight: 600; }
 .res-actions .btn-charge:hover { background: #22406f; }
+
+/* ===== Lista de espera ===== */
+.wl-panel { margin-top: 20px; }
+.wl-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.wl-head h3 { margin: 0; }
+.wl-count { color: var(--brand-dark); }
+.wl-hint { font-size: 12.5px; color: var(--text-muted); margin: 6px 0 12px; }
+.wl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 8px; font-size: 14px; }
+.wl-row .res-actions { flex: 0 0 auto; padding-left: 0; }
+.wl-row.wl-cancelled, .wl-row.wl-expired { opacity: .65; }
+.wl-row .wl-status { background: var(--bg); color: var(--text); border-color: var(--border); }
+.wl-row.wl-offered .wl-status { background: #fff3cd; color: #7a5a00; border-color: #f0d98a; }
+.wl-row.wl-accepted .wl-status { background: #e2f3e6; color: #1e6b34; border-color: #a9d8b5; }
+.cchip-confirmed { background: #e2f3e6; color: #1e6b34; border-color: #a9d8b5; }

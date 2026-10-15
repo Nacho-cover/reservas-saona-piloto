@@ -1,0 +1,17 @@
+name: Lista de espera (revisión periódica)
+
+# Cada 10 minutos: caduca las ofertas de mesa que nadie confirmó y avisa al siguiente de
+# la lista si hay sitio. (Además se revisa al instante cada vez que se cancela una reserva.)
+# GitHub puede retrasar unos minutos las ejecuciones programadas.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Revisar la lista de espera
+        run: |
+          curl -sf --max-time 120 "https://reservas-saona-piloto.onrender.com/api/cron/waitlist-tick?key=${{ secrets.CRON_SECRET }}"

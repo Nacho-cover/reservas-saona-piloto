@@ -304,6 +304,51 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_reservations_guarantee_order ON reservations (guarantee_order) WHERE guarantee_order IS NOT NULL;
   `);
 
+  // Avisos al cliente (WhatsApp o email), recordatorio del día antes con enlace para
+  // confirmar/cancelar, y lista de espera — ver server/notify.js y server/waitlist.js.
+  await pool.query(`
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS manage_key TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS reminder_sent_at TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS customer_confirmed_at TEXT;
+    CREATE TABLE IF NOT EXISTS waitlist (
+      id SERIAL PRIMARY KEY,
+      restaurant_id INTEGER NOT NULL REFERENCES restaurants(id),
+      date TEXT NOT NULL,
+      time TEXT NOT NULL,
+      party_size INTEGER NOT NULL,
+      customer_name TEXT NOT NULL,
+      phone TEXT,
+      email TEXT,
+      notes TEXT,
+      source TEXT NOT NULL DEFAULT 'web',
+      -- waiting · offered · accepted · expired · cancelled
+      status TEXT NOT NULL DEFAULT 'waiting',
+      access_key TEXT NOT NULL,
+      offer_time TEXT,
+      offered_at TEXT,
+      offer_expires_at TEXT,
+      reservation_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS'),
+      created_by INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_waitlist_day ON waitlist (restaurant_id, date, status);
+    CREATE TABLE IF NOT EXISTS notifications (
+      id SERIAL PRIMARY KEY,
+      restaurant_id INTEGER,
+      reservation_id INTEGER,
+      waitlist_id INTEGER,
+      kind TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      recipient TEXT,
+      status TEXT NOT NULL,
+      provider_id TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT to_char(now(), 'YYYY-MM-DD HH24:MI:SS')
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_res ON notifications (reservation_id);
+    CREATE INDEX IF NOT EXISTS idx_notifications_wl ON notifications (waitlist_id);
+  `);
+
   // Primer arranque: si no hay ninguna credencial de acceso al panel de personal, se crea una.
   // Antes se sembraba con la contraseña fija "123456" — cualquiera que viera este código (o lo
   // adivinara) tenía acceso al panel en producción. Ahora: si se define ADMIN_INITIAL_PASSWORD
