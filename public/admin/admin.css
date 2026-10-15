@@ -112,8 +112,19 @@ button, input, select, textarea { font-family: inherit; }
 .modal-backdrop.hidden { display: none; }
 .hidden { display: none !important; }
 
-.month-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.month-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 14px; }
+/* Formulario de nueva reserva: campos que reparten el ancho sin salirse de la ventana */
+.modal .field-row .field { flex: 1; min-width: 0; }
+.modal .field input, .modal .field select, .modal .field textarea { width: 100%; box-sizing: border-box; min-width: 0; }
+.modal .field select { font-size: 15px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); font-family: inherit; color: var(--text); }
+@media (max-width: 640px) {
+  .modal { padding: 18px; max-height: 92vh; overflow-y: auto; }
+  .modal .field-row { flex-wrap: wrap; }
+  .modal .field-row .field { flex: 1 1 140px; }
+  .month-nav h3 { font-size: 15px; }
+  .month-nav .btn { padding: 8px 10px; font-size: 13px; }
+}
+.month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
 .month-daylabel { text-align: center; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; padding-bottom: 4px; }
 .month-cell {
   min-height: 64px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg);
@@ -137,7 +148,10 @@ button, input, select, textarea { font-family: inherit; }
 .month-totals .month-tot { display: inline-flex; align-items: center; gap: 6px; }
 .month-totals b { color: var(--text); }
 @media (max-width: 640px) {
-  .month-cell { padding: 4px; min-height: 72px; }
+  .month-grid { gap: 3px; }
+  .month-cell { padding: 4px 3px; min-height: 64px; gap: 2px; }
+  .month-cell .month-shift { gap: 2px; font-size: 11px; overflow: visible; }
+  .month-cell .shift-dot { width: 6px; height: 6px; }
   .month-cell .month-shift .ms-label, .month-cell .month-shift .ms-res { display: none; }
   .month-cell .month-res { display: none; }
 }
