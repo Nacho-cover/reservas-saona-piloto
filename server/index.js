@@ -411,12 +411,17 @@ app.get('/api/reservations', can('reservations'), requireRestaurant, async (req,
 });
 
 // Resumen por día (para la vista mensual) — cuántas reservas y comensales hay cada
-// día en un rango, sin traer el detalle completo de cada reserva.
+// día en un rango, en total y separado en Comida / Cena, sin traer el detalle completo
+// de cada reserva. Mismo corte que el panel: antes de las 18:00 = Comida.
 app.get('/api/reservations/summary', can('reservations'), requireRestaurant, async (req, res) => {
   const { from, to } = req.query;
   if (!from || !to) return res.status(400).json({ error: 'from y to son obligatorios' });
   const { rows } = await db.query(`
-    SELECT date, COUNT(*)::int AS reservations, SUM(party_size)::int AS covers
+    SELECT date, COUNT(*)::int AS reservations, SUM(party_size)::int AS covers,
+      COUNT(*) FILTER (WHERE time::text < '18:00')::int AS lunch_reservations,
+      COALESCE(SUM(party_size) FILTER (WHERE time::text < '18:00'), 0)::int AS lunch_covers,
+      COUNT(*) FILTER (WHERE time::text >= '18:00')::int AS dinner_reservations,
+      COALESCE(SUM(party_size) FILTER (WHERE time::text >= '18:00'), 0)::int AS dinner_covers
     FROM reservations
     WHERE restaurant_id = $1 AND date BETWEEN $2 AND $3 AND status != 'cancelled'
     GROUP BY date

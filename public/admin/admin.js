@@ -757,6 +757,21 @@ async function loadMonthView() {
   const byDate = {};
   rows.forEach(r => { byDate[r.date] = r; });
 
+  // Totales del mes por turno.
+  const tot = rows.reduce((a, r) => ({
+    lr: a.lr + (r.lunch_reservations || 0), lc: a.lc + (r.lunch_covers || 0),
+    dr: a.dr + (r.dinner_reservations || 0), dc: a.dc + (r.dinner_covers || 0),
+  }), { lr: 0, lc: 0, dr: 0, dc: 0 });
+  const plural = (n) => `${n} reserva${n === 1 ? '' : 's'}`;
+  $('monthTotals').innerHTML = `
+    <span class="month-tot"><span class="shift-dot lunch"></span>Comida: <b>${tot.lc} p</b> · ${plural(tot.lr)}</span>
+    <span class="month-tot"><span class="shift-dot dinner"></span>Cena: <b>${tot.dc} p</b> · ${plural(tot.dr)}</span>
+    <span class="month-tot">Total: <b>${tot.lc + tot.dc} p</b> · ${plural(tot.lr + tot.dr)}</span>`;
+
+  const shiftLine = (cls, label, covers, res) => covers || res
+    ? `<span class="month-shift ${cls}" title="${label}: ${covers} comensales, ${plural(res)}"><span class="shift-dot ${cls}"></span><span class="ms-label">${label}</span> <b>${covers}p</b> <span class="ms-res">· ${res}r</span></span>`
+    : `<span class="month-shift ${cls} zero"><span class="shift-dot ${cls}"></span><span class="ms-label">${label}</span> —</span>`;
+
   const grid = $('monthGrid');
   grid.innerHTML = DAY_LABELS.map(l => `<div class="month-daylabel">${l}</div>`).join('');
 
@@ -771,7 +786,11 @@ async function loadMonthView() {
     cell.className = 'month-cell' + (dateStr === todayISO() ? ' today' : '');
     cell.innerHTML = `
       <span class="month-daynum">${day}</span>
-      ${summary ? `<span class="month-covers">${summary.covers}p</span><span class="month-res">${summary.reservations} reserva${summary.reservations === 1 ? '' : 's'}</span>` : '<span class="month-res">—</span>'}
+      ${summary
+        ? shiftLine('lunch', 'Comida', summary.lunch_covers, summary.lunch_reservations)
+          + shiftLine('dinner', 'Cena', summary.dinner_covers, summary.dinner_reservations)
+          + `<span class="month-res">Total ${summary.covers}p · ${summary.reservations}r</span>`
+        : '<span class="month-res">—</span>'}
     `;
     cell.addEventListener('click', () => {
       state.date = dateStr;
@@ -826,12 +845,18 @@ function downloadMonthXlsx() {
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     if (key > to) break;
     const r = byDate[key];
-    out.push([key, d.toLocaleDateString('es-ES', { weekday: 'long' }), r ? r.reservations : 0, r ? r.covers : 0]);
+    out.push([key, d.toLocaleDateString('es-ES', { weekday: 'long' }),
+      r ? r.lunch_reservations : 0, r ? r.lunch_covers : 0,
+      r ? r.dinner_reservations : 0, r ? r.dinner_covers : 0,
+      r ? r.reservations : 0, r ? r.covers : 0]);
   }
-  const total = out.reduce((acc, r) => [acc[0] + r[2], acc[1] + r[3]], [0, 0]);
-  out.push(['Total', '', total[0], total[1]]);
+  const total = ['Total', ''];
+  for (let i = 2; i < 8; i++) total.push(out.reduce((acc, r) => acc + r[i], 0));
+  out.push(total);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, xlsxSheet(['Día', 'Día de la semana', 'Reservas (sin canceladas)', 'Comensales'], out), 'Mes');
+  XLSX.utils.book_append_sheet(wb, xlsxSheet(['Día', 'Día de la semana',
+    'Reservas comida', 'Comensales comida', 'Reservas cena', 'Comensales cena',
+    'Reservas total (sin canceladas)', 'Comensales total'], out), 'Mes');
   XLSX.writeFile(wb, `reservas-mes-${restaurantSlug()}-${from.slice(0, 7)}.xlsx`, { compression: true });
 }
 

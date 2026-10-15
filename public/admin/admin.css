@@ -125,6 +125,22 @@ button, input, select, textarea { font-family: inherit; }
 .month-cell .month-daynum { font-size: 12px; font-weight: 700; color: var(--text); }
 .month-cell .month-covers { font-size: 15px; font-weight: 700; color: var(--brand-dark); }
 .month-cell .month-res { font-size: 11px; color: var(--text-muted); }
+/* Comida / Cena en la vista mensual (mismos colores que los gráficos de Informes) */
+.shift-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.shift-dot.lunch { background: #2a78d6; }
+.shift-dot.dinner { background: #eb6834; }
+.month-cell .month-shift { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; }
+.month-cell .month-shift b { color: var(--brand-dark); }
+.month-cell .month-shift .ms-res { color: var(--text-muted); font-size: 11px; }
+.month-cell .month-shift.zero { color: var(--text-muted); }
+.month-totals { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 12px; font-size: 13px; color: var(--text-muted); }
+.month-totals .month-tot { display: inline-flex; align-items: center; gap: 6px; }
+.month-totals b { color: var(--text); }
+@media (max-width: 640px) {
+  .month-cell { padding: 4px; min-height: 72px; }
+  .month-cell .month-shift .ms-label, .month-cell .month-shift .ms-res { display: none; }
+  .month-cell .month-res { display: none; }
+}
 .modal { background: var(--surface); border-radius: var(--radius); padding: 24px; width: 100%; max-width: 480px; }
 .modal h2 { margin-top: 0; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
