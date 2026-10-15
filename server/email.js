@@ -11,6 +11,19 @@ function formatFechaLarga(dateStr) {
   return d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+// Reserva garantizada con tarjeta: recordatorio de la política de cancelación.
+function guaranteeLine(reservation) {
+  if (reservation.guarantee_status !== 'ok' || !reservation.guarantee_fee_cents) return '';
+  const perPerson = reservation.guarantee_fee_cents / 100;
+  const total = perPerson * reservation.party_size;
+  const fmt = (n) => n.toLocaleString('es-ES', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }) + ' €';
+  const hours = reservation.guarantee_free_cancel_hours || 0;
+  return `<div style="border:1px solid #e1ded5;border-radius:10px;padding:12px 14px;margin-bottom:20px;font-size:13px;color:#384049;">
+    💳 Reserva garantizada con tu tarjeta${reservation.card_last4 ? ' acabada en ' + reservation.card_last4 : ''}. No se ha cobrado nada.
+    Si no puedes venir, avísanos con al menos <strong>${hours} h</strong> de antelación; si no te presentas o cancelas más tarde,
+    se cobrarán <strong>${fmt(perPerson)} por persona</strong> (${fmt(total)} en total).</div>`;
+}
+
 function confirmationEmailHtml({ restaurant, reservation, zoneNames }) {
   const fecha = formatFechaLarga(reservation.date);
   const zonaLinea = zoneNames && zoneNames.length
@@ -33,6 +46,7 @@ function confirmationEmailHtml({ restaurant, reservation, zoneNames }) {
         <p style="margin:0 0 4px;color:#65728A;font-size:14px;">👥 Comensales: <strong style="color:#152b4e;">${reservation.party_size}</strong></p>
         ${zonaLinea}
       </div>
+      ${guaranteeLine(reservation)}
       <p style="margin:0 0 6px;font-size:13px;color:#65728A;">Si necesitas cambiar o cancelar tu reserva, llámanos:</p>
       <p style="margin:0 0 20px;font-size:15px;color:#384049;font-weight:600;">${restaurant.phone || ''}</p>
       <p style="margin:0;font-size:13px;color:#65728A;">${restaurant.address || ''}</p>

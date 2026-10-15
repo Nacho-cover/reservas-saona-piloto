@@ -33,6 +33,8 @@ const STATUS_FLOW = {
   completed: { label: 'Completada', color: '', next: null },
   cancelled: { label: 'Cancelada', color: '', next: null },
   no_show: { label: 'No-show', color: '', next: null },
+  // Reserva web esperando a que el cliente deje la tarjeta en Redsys (caduca a los 20 min).
+  pending_card: { label: 'Pendiente de tarjeta', color: '', next: null },
 };
 // Estados en los que el cliente está en la mesa: se puede "Liberar mesa".
 const IN_TABLE = ['seated', 'eating', 'dessert', 'paid'];
@@ -237,7 +239,7 @@ function renderRow(r) {
   info.className = 'res-info';
   info.innerHTML = `
     <div class="res-name">${r.phone ? `<button type="button" class="res-cust-link" title="Ver ficha del cliente">${escapeHtml(r.customer_name)}</button>` : escapeHtml(r.customer_name)} · ${r.party_size}p ${r.tables && r.tables.length ? `· Mesa ${r.tables.join(', ')}` : ''}</div>
-    ${customerChips(r.customer)}
+    ${customerChips(r.customer)}${guaranteeChips(r)}
     <div class="res-meta">${r.phone || ''} ${r.notes ? '· ' + escapeHtml(r.notes) : ''}</div>
   `;
   info.querySelector('.res-cust-link')?.addEventListener('click', () => openCustomerCard(r.phone, loadReservations));
@@ -246,6 +248,7 @@ function renderRow(r) {
   let badgeExtraClass = '';
   if (r.status === 'cancelled') badgeExtraClass = r.cancelled_by === 'customer' ? 'cancelled-customer' : 'cancelled';
   else if (r.status === 'no_show') badgeExtraClass = 'no-show';
+  else if (r.status === 'pending_card') badgeExtraClass = 'pending-card';
 
   const badge = document.createElement('span');
   badge.className = 'res-badge' + (flow.color ? ' ' + flow.color : '') + (badgeExtraClass ? ' ' + badgeExtraClass : '');
@@ -258,7 +261,12 @@ function renderRow(r) {
 
   const actions = document.createElement('div');
   actions.className = 'res-actions';
-  if (r.status !== 'cancelled' && r.status !== 'completed' && r.status !== 'no_show') {
+  if (r.status === 'pending_card') {
+    const note = document.createElement('span');
+    note.className = 'res-pending-note';
+    note.textContent = 'El cliente está dejando la tarjeta en la pasarela. Si no termina en 20 min, la reserva se borra sola.';
+    actions.appendChild(note);
+  } else if (r.status !== 'cancelled' && r.status !== 'completed' && r.status !== 'no_show') {
     if (flow.next && flow.next !== 'completed') {
       actions.appendChild(actionBtn(flow.nextLabel, () => updateStatus(r.id, flow.next)));
     }
@@ -267,6 +275,9 @@ function renderRow(r) {
     actions.appendChild(actionBtn('No-show', () => markNoShow(r.id), 'btn-noshow'));
     actions.appendChild(actionBtn('Cancela restaurante', () => cancelReservation(r.id, 'restaurant'), 'btn-cancel-restaurant'));
     actions.appendChild(actionBtn('Cancela cliente', () => cancelReservation(r.id, 'customer'), 'btn-cancel-customer'));
+  }
+  if (r.penalty_eligible && hasPerm('penalties')) {
+    actions.appendChild(actionBtn(`Cobrar penalización (${eurosTxt(penaltyAmount(r))})`, () => chargePenalty(r), 'btn-charge'));
   }
 
   row.appendChild(time);
@@ -297,6 +308,37 @@ async function updateStatus(id, status) {
     body: JSON.stringify({ status }),
   });
   await loadReservations();
+  if (status === 'no_show') await offerPenalty(id);
+}
+
+// --- Garantía con tarjeta (Redsys) -------------------------------------------------------
+function eurosTxt(cents) {
+  const n = (cents || 0) / 100;
+  return n.toLocaleString('es-ES', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }) + ' €';
+}
+function penaltyAmount(r) { return (r.guarantee_fee_cents || 0) * r.party_size; }
+function guaranteeChips(r) {
+  const chips = [];
+  if (r.guarantee_status === 'ok') chips.push(`<span class="cchip cchip-card" title="Tarjeta de garantía · ${eurosTxt(r.guarantee_fee_cents)} por persona · cancelación gratuita hasta ${r.guarantee_free_cancel_hours} h antes">💳 ${r.card_last4 ? '···' + escapeHtml(r.card_last4) : 'Tarjeta'}</span>`);
+  if (r.penalty_status === 'charged') chips.push(`<span class="cchip cchip-charged">Penalización cobrada ${eurosTxt(r.penalty_amount_cents)}</span>`);
+  else if (r.penalty_status === 'failed') chips.push(`<span class="cchip cchip-failed" title="${escapeHtml(r.penalty_message || '')}">Cobro rechazado</span>`);
+  return chips.length ? `<span class="cchips">${chips.join('')}</span>` : '';
+}
+// Tras marcar no-show o una cancelación del cliente, si se puede cobrar, se ofrece.
+async function offerPenalty(id) {
+  const r = state.reservations.find(x => x.id === id);
+  if (!r || !r.penalty_eligible || !hasPerm('penalties')) return;
+  await chargePenalty(r);
+}
+async function chargePenalty(r) {
+  const amount = eurosTxt(penaltyAmount(r));
+  const why = r.status === 'no_show' ? 'no se presentó' : `canceló con menos de ${r.guarantee_free_cancel_hours} h de antelación`;
+  if (!confirm(`${r.customer_name} ${why}.\n\n¿Cobrar ahora la penalización de ${amount} (${eurosTxt(r.guarantee_fee_cents)} × ${r.party_size}) a la tarjeta ${r.card_last4 ? '···' + r.card_last4 : 'de garantía'}?\n\nEl cobro es real y no se puede deshacer desde aquí.`)) return;
+  const res = await fetch(`/api/reservations/${r.id}/charge-penalty`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const data = await res.json().catch(() => ({}));
+  await loadReservations();
+  if (res.ok) toast(`Penalización de ${eurosTxt(data.amountCents)} cobrada${data.testMode ? ' (entorno de pruebas: no se mueve dinero)' : ''}.`);
+  else alert(data.error || 'No se pudo cobrar la penalización.');
 }
 
 async function cancelReservation(id, cancelledBy) {
@@ -308,6 +350,7 @@ async function cancelReservation(id, cancelledBy) {
     body: JSON.stringify({ status: 'cancelled', cancelledBy }),
   });
   await loadReservations();
+  if (cancelledBy === 'customer') await offerPenalty(id);
   return true;
 }
 
@@ -342,7 +385,7 @@ function openTableSheet(t) {
   const sheet = $('tableSheet');
   const resHtml = list.length ? list.map(r => {
     const flow = STATUS_FLOW[r.status] || {};
-    const canAct = !['completed', 'cancelled', 'no_show'].includes(r.status);
+    const canAct = !['completed', 'cancelled', 'no_show', 'pending_card'].includes(r.status);
     const otherTables = (r.tables || []).filter(n => n !== t.name);
     return `<div class="ts-res" data-id="${r.id}">
       <div class="ts-res-top">
@@ -901,7 +944,7 @@ function xlsxOk() {
 function downloadDayXlsx() {
   if (!xlsxOk()) return;
   const columns = ['Fecha', 'Hora', 'Turno', 'Cliente', 'Comensales', 'Mesa', 'Estado', 'Cancelada por', 'Canal', 'Teléfono', 'Email', 'Notas',
-    'Etiquetas', 'Alergias', 'No-shows (grupo)', 'Visitas (grupo)'];
+    'Etiquetas', 'Alergias', 'No-shows (grupo)', 'Visitas (grupo)', 'Tarjeta de garantía', 'Penalización'];
   const rows = [...state.reservations]
     .sort((a, b) => a.time.localeCompare(b.time))
     .map(r => [r.date, r.time, shiftLabel(r.time), r.customer_name, r.party_size, (r.tables || []).join('+'),
@@ -910,7 +953,9 @@ function downloadDayXlsx() {
       CANAL_LABELS[r.source] || r.source, r.phone || '', r.email || '', r.notes || '',
       r.customer ? (r.customer.tags || []).map(t => CUST_TAG_LABELS[t] || t).join(', ') : '',
       r.customer ? (r.customer.allergies || []).join(', ') : '',
-      r.customer ? r.customer.noShows : '', r.customer ? r.customer.visits : '']);
+      r.customer ? r.customer.noShows : '', r.customer ? r.customer.visits : '',
+      r.guarantee_status === 'ok' ? `Sí${r.card_last4 ? ' ···' + r.card_last4 : ''}` : '',
+      r.penalty_status === 'charged' ? `Cobrada ${eurosTxt(r.penalty_amount_cents)}` : (r.penalty_status === 'failed' ? 'Rechazada' : '')]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, xlsxSheet(columns, rows), 'Reservas');
   XLSX.writeFile(wb, `reservas-${restaurantSlug()}-${state.date}.xlsx`, { compression: true });

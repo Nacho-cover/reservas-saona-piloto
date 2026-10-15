@@ -21,3 +21,17 @@
 .override-row .ov-meta { flex: 1; color: var(--text-muted); }
 .override-row button { border: none; background: none; cursor: pointer; color: var(--danger); font-size: 12px; }
 .week-day .wd-plan { font-size: 11px; opacity: 0.8; margin-top: 3px; }
+
+/* Garantía con tarjeta */
+.g-state { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--bg); color: var(--text-muted); }
+.g-state.on { background: #e2f3e6; color: #1e6b34; }
+.g-check .chip { display: inline-flex; align-items: center; gap: 6px; }
+.g-wide { flex: 1 1 260px; }
+.g-account { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 14px; }
+.g-account h3 { margin: 0 0 4px; font-size: 14px; }
+.g-badge-test { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #fff3cd; color: #7a5a00; }
+.g-badge-live { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #e2f3e6; color: #1e6b34; }
+#guaranteeCard .g-check .chip { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; width: auto; min-height: 0; padding: 10px 14px; font-size: 14px; color: var(--text); white-space: nowrap; }
+#guaranteeCard .g-check .chip input { width: auto; margin: 0; }
+#guaranteeCard .field select, #guaranteeCard .field input[type=text], #guaranteeCard .field input[type=password], #guaranteeCard .field input[type=number] {
+  font-size: 15px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); font-family: inherit; box-sizing: border-box; height: 42px; }

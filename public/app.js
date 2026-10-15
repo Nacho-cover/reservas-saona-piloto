@@ -202,7 +202,29 @@ function partyWord() {
 // La mesa concreta la asigna el restaurante automáticamente al confirmar (ver POST
 // /api/reservations sin tableIds) — el cliente no elige mesa, pero si eligió zona
 // (ver zoneInput) la asignación se restringe a esa zona.
+function eurosTxt(cents) {
+  const n = cents / 100;
+  return n.toLocaleString('es-ES', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+// Locales con garantía activada: se explica la política y se pide aceptarla antes de ir
+// a la pasarela de Redsys (no se cobra nada al reservar).
+function renderGuarantee() {
+  const r = state.restaurant || {};
+  const on = !!r.guarantee_enabled;
+  $('guaranteeBox').classList.toggle('hidden', !on);
+  $('confirmBtn').textContent = on ? 'Continuar y dejar tarjeta' : 'Confirmar reserva';
+  if (!on) return;
+  const per = r.guarantee_fee_cents || 0;
+  const total = per * (state.partySize || 1);
+  const h = r.guarantee_free_cancel_hours || 0;
+  $('guaranteeText').innerHTML = `Para confirmar la reserva te pediremos una tarjeta en la pasarela segura de nuestro banco. <b>No se cobra nada ahora.</b>
+    Si no puedes venir, avísanos con al menos <b>${h} h</b> de antelación. Si no te presentas o cancelas más tarde, se cobrarán
+    <b>${eurosTxt(per)} por persona</b> (${eurosTxt(total)} en total).`;
+}
+
 function goToForm() {
+  renderGuarantee();
   $('formSummary').innerHTML = '';
   const chip = document.createElement('div');
   chip.className = 'recap-chip';
@@ -227,6 +249,8 @@ async function confirmReservation() {
   if (!customerName) { $('formError').textContent = 'Indica tu nombre.'; return; }
   if (!phone) { $('formError').textContent = 'Indica un teléfono de contacto.'; return; }
   if (!consentAccepted) { $('formError').textContent = 'Debes aceptar el tratamiento de datos para reservar.'; return; }
+  const needsCard = !!(state.restaurant && state.restaurant.guarantee_enabled);
+  if (needsCard && !$('policyInput').checked) { $('formError').textContent = 'Debes aceptar la política de cancelación para reservar.'; return; }
 
   const btn = $('confirmBtn');
   btn.disabled = true;
@@ -251,6 +275,12 @@ async function confirmReservation() {
       throw new Error(data.error || 'No se pudo confirmar la reserva');
     }
 
+    // Garantía con tarjeta: la reserva queda apartada y el cliente va a la pasarela.
+    if (data.redsys) {
+      goToRedsys(data.redsys);
+      return;
+    }
+
     const dateFmt = new Date(state.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
     const zoneLine = (data.zoneNames && data.zoneNames.length)
       ? `<br><span class="recap-zone">📍 ${data.zoneNames.join(', ')}</span>`
@@ -266,9 +296,60 @@ async function confirmReservation() {
   } catch (err) {
     $('formError').textContent = err.message;
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Confirmar reserva';
+    if (!state.redirecting) {
+      btn.disabled = false;
+      btn.textContent = state.restaurant && state.restaurant.guarantee_enabled ? 'Continuar y dejar tarjeta' : 'Confirmar reserva';
+    }
   }
+}
+
+function goToRedsys({ url, fields }) {
+  state.redirecting = true;
+  $('confirmBtn').textContent = 'Abriendo la pasarela segura…';
+  $('formError').innerHTML = '<span class="redirect-note">Te llevamos a la pasarela de pago del banco. Tienes 20 minutos para completarla; después la mesa se libera.</span>';
+  const form = $('redsysForm');
+  form.action = url;
+  form.innerHTML = '';
+  for (const [k, v] of Object.entries(fields)) {
+    const input = document.createElement('input');
+    input.type = 'hidden'; input.name = k; input.value = v;
+    form.appendChild(input);
+  }
+  form.submit();
+}
+
+function showConfirmation(d) {
+  const dateFmt = new Date(d.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+  const zoneLine = (d.zoneNames && d.zoneNames.length) ? `<br><span class="recap-zone">📍 ${d.zoneNames.join(', ')}</span>` : '';
+  const card = d.guarantee_status === 'ok'
+    ? `<br>💳 Garantizada con tu tarjeta${d.card_last4 ? ' ···' + d.card_last4 : ''} (no se ha cobrado nada)` : '';
+  $('confirmBox').innerHTML = `
+    <strong>${d.restaurant_name || (state.restaurant && state.restaurant.name) || ''}</strong><br>
+    ${dateFmt} · ${d.time}h<br>
+    ${d.party_size} ${d.party_size === 1 ? 'persona' : 'personas'}<br>
+    Mesa: ${(d.tables || []).join(', ')}${zoneLine}<br>
+    A nombre de: ${d.customer_name}${card}
+  `;
+  showStep('step-confirm');
+}
+
+// Vuelta desde la pasarela de Redsys: /?reserva=ID&k=CLAVE&pago=ok|ko
+async function handleRedsysReturn() {
+  const q = new URLSearchParams(location.search);
+  if (!q.get('reserva') || !q.get('k')) return false;
+  const id = q.get('reserva'); const k = q.get('k'); const pago = q.get('pago');
+  history.replaceState(null, '', location.pathname + (q.get('restaurantId') ? '?restaurantId=' + q.get('restaurantId') : ''));
+  for (let i = 0; i < 8; i++) {
+    const res = await fetch(`/api/public/reservations/${encodeURIComponent(id)}?k=${encodeURIComponent(k)}`);
+    if (res.ok) {
+      const d = await res.json();
+      if (d.status !== 'pending_card') { showConfirmation(d); return true; }
+      if (pago === 'ko') break;
+    } else break;
+    await new Promise(r => setTimeout(r, 1500)); // la notificación del banco puede tardar unos segundos
+  }
+  showStep('step-card-failed');
+  return true;
 }
 
 function resetFlow() {
@@ -277,7 +358,9 @@ function resetFlow() {
   $('emailInput').value = '';
   $('notesInput').value = '';
   $('consentInput').checked = false;
+  $('policyInput').checked = false;
   state.selectedTime = null;
+  state.redirecting = false;
   showStep('step-search');
 }
 
@@ -292,6 +375,18 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('backToSlots').addEventListener('click', () => showStep('step-slots'));
   $('confirmBtn').addEventListener('click', confirmReservation);
   $('newReservationBtn').addEventListener('click', resetFlow);
+  $('retryAfterCardBtn').addEventListener('click', resetFlow);
+  $('partySizeInput').addEventListener('change', () => { if (!$('step-form').classList.contains('hidden')) renderGuarantee(); });
+  await handleRedsysReturn();
+  // Si el cliente vuelve atrás desde la pasarela, el botón se reactiva (la mesa sigue
+  // apartada 20 min; si reintenta, se crea una reserva nueva y la anterior caduca).
+  window.addEventListener('pageshow', (e) => {
+    if (!e.persisted) return;
+    state.redirecting = false;
+    $('confirmBtn').disabled = false;
+    renderGuarantee();
+    $('formError').textContent = '';
+  });
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});

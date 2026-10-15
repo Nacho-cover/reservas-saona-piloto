@@ -316,6 +316,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (!(await guardAdminPage('closures'))) return;
   renderSessionBar($('sessionBar'));
   renderRestaurantBar($('restaurantBar'));
+  if (typeof initGuarantee === 'function') initGuarantee();
 
   populateHourSelect($('shiftStart'));
   populateHourSelect($('shiftEnd'));

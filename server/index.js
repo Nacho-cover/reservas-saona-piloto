@@ -31,6 +31,18 @@ app.use('/api/reports', require('./reports'));
 const customers = require('./customers');
 app.use('/api/customers', customers.router);
 
+// Garantía con tarjeta (Redsys) en las reservas web — ver server/guarantee.js y redsys.js.
+const guarantee = require('./guarantee');
+// Email de confirmación de una reserva ya guardada (con su local y zonas).
+async function sendConfirmationFor(reservation) {
+  const { rows: rest } = await db.query('SELECT * FROM restaurants WHERE id = $1', [reservation.restaurant_id]);
+  const { rows: z } = await db.query(`SELECT DISTINCT zn.name FROM reservation_tables rt JOIN tables tb ON tb.id = rt.table_id
+    JOIN zones zn ON zn.id = tb.zone_id WHERE rt.reservation_id = $1`, [reservation.id]);
+  if (!reservation.email || !rest[0]) return;
+  return sendConfirmationEmail({ restaurant: rest[0], reservation, zoneNames: z.map(x => x.name) });
+}
+app.use('/api', guarantee.makeRouter({ sendConfirmation: sendConfirmationFor }));
+
 // --- Helpers -----------------------------------------------------------
 async function getRestaurant(id) {
   const { rows } = await db.query('SELECT * FROM restaurants WHERE id = $1', [id]);
@@ -265,6 +277,13 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
     req.user = staff; // para el registro de actividad
   }
   const isWalkIn = bookingSource === 'walkin';
+  // Locales con garantía activada: toda reserva web/app queda pendiente hasta que el
+  // cliente deja la tarjeta en la pasarela de Redsys (ver server/guarantee.js).
+  const needsCard = !isStaffBooking && !!restaurant.guarantee_enabled;
+  if (needsCard) {
+    await guarantee.cleanupPending();
+    await guarantee.releaseOwnPending(restaurant.id, phone, date);
+  }
   // El personal puede forzar una mesa aunque no encaje por capacidad (con aviso en el panel).
   const ignoreCapacity = isStaffBooking && req.body.force === true;
 
@@ -368,7 +387,7 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, $13, $10, $11, $12) RETURNING id
     `, [restaurant.id, customer ? customer.id : null, customerName, phone || null, email || null,
         Number(partySize), date, time, duration, bookingSource, notes || null, consentAccepted ? 1 : 0,
-        isWalkIn ? 'seated' : 'confirmed']);
+        isWalkIn ? 'seated' : (needsCard ? 'pending_card' : 'confirmed')]);
 
     const reservationId = inserted[0].id;
     for (const t of tables) {
@@ -390,6 +409,22 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
   // depender de que el email salga bien o mal) — se manda en paralelo a responder.
   // Las reservas telefónicas también la reciben si el personal ha anotado un email
   // (los walk-in no: el cliente ya está sentado).
+  if (needsCard) {
+    // La confirmación por email sale cuando Redsys confirma la tarjeta.
+    let started;
+    try {
+      started = await guarantee.startForReservation(req, restaurant, reservation);
+    } catch (err) {
+      await db.query('DELETE FROM reservation_tables WHERE reservation_id = $1', [reservation.id]);
+      await db.query('DELETE FROM reservations WHERE id = $1', [reservation.id]);
+      return res.status(err.status || 500).json({ error: err.message });
+    }
+    return res.status(201).json({
+      id: reservation.id, status: reservation.status, date, time, party_size: reservation.party_size,
+      tables: tables.map(t => t.name), zoneNames, redsys: started.form, testMode: started.testMode,
+    });
+  }
+
   if (reservation.email && !isWalkIn) {
     sendConfirmationEmail({ restaurant, reservation, zoneNames }).catch(() => {});
   }
@@ -402,10 +437,12 @@ app.get('/api/reservations', can('reservations'), requireRestaurant, async (req,
   const { date } = req.query;
   let rows;
   if (date) {
-    ({ rows } = await db.query('SELECT * FROM reservations WHERE restaurant_id = $1 AND date = $2 ORDER BY time', [req.restaurant.id, date]));
+    ({ rows } = await db.query(`SELECT r.*, ${guarantee.PENALTY_ELIGIBLE_SQL} AS penalty_eligible FROM reservations r WHERE r.restaurant_id = $1 AND r.date = $2 ORDER BY r.time`, [req.restaurant.id, date]));
   } else {
-    ({ rows } = await db.query('SELECT * FROM reservations WHERE restaurant_id = $1 ORDER BY date DESC, time', [req.restaurant.id]));
+    ({ rows } = await db.query(`SELECT r.*, ${guarantee.PENALTY_ELIGIBLE_SQL} AS penalty_eligible FROM reservations r WHERE r.restaurant_id = $1 ORDER BY r.date DESC, r.time`, [req.restaurant.id]));
   }
+  // La referencia de la tarjeta y la clave pública de la reserva no salen al panel.
+  for (const r of rows) { delete r.card_token; delete r.card_cof_txnid; delete r.guarantee_key; }
   if (!rows.length) return res.json([]);
   // Una sola consulta con IN(...) para todas las reservas del día, en vez de una
   // por reserva (con muchas reservas a la vez, el pooler de Supabase tiene un
@@ -1090,6 +1127,8 @@ db.initDb()
     app.listen(PORT, () => {
       console.log(`Servidor de reservas escuchando en http://localhost:${PORT}`);
     });
+    // Libera cada 5 min las reservas web que se quedaron sin completar la tarjeta.
+    guarantee.startCleanup();
   })
   .catch(err => {
     console.error('Error al inicializar la base de datos:', err);

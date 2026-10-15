@@ -268,6 +268,42 @@ async function initDb() {
     );
   `);
 
+  // Garantía con tarjeta (Redsys) — ver server/redsys.js. Desactivada por defecto en
+  // cada local; importe por persona en céntimos y horas de cancelación gratuita.
+  await pool.query(`
+    ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS guarantee_enabled BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS guarantee_fee_cents INTEGER NOT NULL DEFAULT 2000;
+    ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS guarantee_free_cancel_hours INTEGER NOT NULL DEFAULT 6;
+    CREATE TABLE IF NOT EXISTS payment_accounts (
+      restaurant_id INTEGER PRIMARY KEY REFERENCES restaurants(id),
+      merchant_code TEXT,
+      terminal TEXT,
+      secret_enc TEXT,
+      env TEXT NOT NULL DEFAULT 'test',
+      updated_at TEXT,
+      updated_by INTEGER
+    );
+    -- Por reserva: la política vigente al reservar (no cambia si luego se toca la
+    -- configuración), la referencia de la tarjeta que devuelve Redsys y el cobro.
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS guarantee_status TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS guarantee_order TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS guarantee_key TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS guarantee_fee_cents INTEGER;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS guarantee_free_cancel_hours INTEGER;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS card_token TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS card_cof_txnid TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS card_expiry TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS card_last4 TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS penalty_status TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS penalty_amount_cents INTEGER;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS penalty_order TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS penalty_at TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS penalty_auth_code TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS penalty_message TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS penalty_by INTEGER;
+    CREATE INDEX IF NOT EXISTS idx_reservations_guarantee_order ON reservations (guarantee_order) WHERE guarantee_order IS NOT NULL;
+  `);
+
   // Primer arranque: si no hay ninguna credencial de acceso al panel de personal, se crea una.
   // Antes se sembraba con la contraseña fija "123456" — cualquiera que viera este código (o lo
   // adivinara) tenía acceso al panel en producción. Ahora: si se define ADMIN_INITIAL_PASSWORD

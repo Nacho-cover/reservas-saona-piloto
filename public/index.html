@@ -86,8 +86,26 @@
         <input type="checkbox" id="consentInput">
         <span>Acepto el tratamiento de mis datos para gestionar esta reserva y que el restaurante me contacte sobre ella. Ver <a href="#" id="legalLink">condiciones de uso y política de privacidad</a>.</span>
       </label>
+      <!-- Garantía con tarjeta (solo locales que la tienen activada) -->
+      <div class="guarantee-box hidden" id="guaranteeBox">
+        <div class="guarantee-title">💳 Reserva con tarjeta de garantía</div>
+        <p id="guaranteeText"></p>
+        <label class="consent-field">
+          <input type="checkbox" id="policyInput">
+          <span>Acepto la política de cancelación de esta reserva.</span>
+        </label>
+      </div>
       <button class="btn btn-primary" id="confirmBtn">Confirmar reserva</button>
       <p class="error" id="formError"></p>
+      <form id="redsysForm" method="POST" class="hidden"></form>
+    </section>
+
+    <!-- Vuelta de la pasarela con la tarjeta rechazada o sin completar -->
+    <section id="step-card-failed" class="card step hidden">
+      <div class="confirm-icon failed">!</div>
+      <h2>No hemos podido guardar la tarjeta</h2>
+      <p class="muted" id="cardFailedText">La reserva no se ha completado y no se ha cobrado nada. Puedes intentarlo de nuevo o llamarnos.</p>
+      <button class="btn btn-primary" id="retryAfterCardBtn">Volver a intentarlo</button>
     </section>
 
     <!-- STEP 4: confirmation -->

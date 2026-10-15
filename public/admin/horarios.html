@@ -69,6 +69,46 @@
     </form>
   </section>
 
+  <!-- Garantía con tarjeta (Redsys) -->
+  <section class="cfg-card" id="guaranteeCard">
+    <div class="cfg-card-header">
+      <h2>Garantía con tarjeta</h2>
+      <span class="g-state" id="gState"></span>
+    </div>
+    <p class="cfg-hint">Si está activada, toda reserva por la web pide una tarjeta en la pasarela del banco (Redsys). No se cobra nada al reservar; si el cliente no viene o cancela tarde, el encargado puede cobrar la penalización desde el panel.</p>
+    <form id="gForm">
+      <div class="field-row">
+        <label class="field g-check"><span>Estado</span>
+          <label class="chip"><input type="checkbox" id="gEnabled"> Pedir tarjeta en las reservas web</label></label>
+        <label class="field"><span>Penalización por persona (€)</span><input type="number" id="gFee" min="1" max="500" step="0.5"></label>
+        <label class="field"><span>Cancelación gratuita hasta (horas antes)</span><input type="number" id="gHours" min="0" max="240" step="1"></label>
+      </div>
+      <p class="cfg-hint" id="gExample" style="margin-top:8px"></p>
+      <p class="error" id="gError"></p>
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="btn btn-primary" type="submit" id="gSaveBtn" data-perm="schedule">Guardar garantía</button>
+      </div>
+    </form>
+
+    <div class="g-account">
+      <h3>Comercio de Redsys del local</h3>
+      <p class="cfg-hint" id="gAccountInfo"></p>
+      <form id="gAccountForm" class="hidden">
+        <div class="field-row">
+          <label class="field"><span>Código de comercio (FUC)</span><input type="text" id="gFuc" inputmode="numeric" autocomplete="off"></label>
+          <label class="field"><span>Terminal</span><input type="text" id="gTerminal" inputmode="numeric" autocomplete="off" placeholder="1"></label>
+          <label class="field"><span>Entorno</span><select id="gEnv"><option value="test">Pruebas (sis-t)</option><option value="live">Real</option></select></label>
+          <label class="field g-wide"><span>Clave de firma SHA-256</span><input type="password" id="gSecret" autocomplete="new-password" placeholder="Déjala vacía para no cambiarla"></label>
+        </div>
+        <p class="error" id="gAccountError"></p>
+        <div class="modal-actions" style="justify-content:flex-start">
+          <button class="btn btn-primary" type="submit">Guardar comercio</button>
+          <button class="btn btn-secondary hidden" type="button" id="gRemoveAccount">Quitar comercio (volver a pruebas)</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
   <!-- Excepciones -->
   <section class="cfg-card">
     <h2>Próximas excepciones de horario</h2>
@@ -79,5 +119,6 @@
 
 <script src="/admin/authbar.js"></script>
 <script src="/admin/horarios.js"></script>
+<script src="/admin/garantia.js"></script>
 </body>
 </html>

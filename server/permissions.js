@@ -18,6 +18,8 @@
 //   customer_tags      Etiquetas de clientes (VIP, Lista negra…) y levantar el bloqueo de la
 //                      reserva web. Las alergias y notas de la ficha las anota cualquiera
 //                      con permiso reservations.
+//   penalties          Cobrar la penalización (no-show o cancelación fuera de plazo) con la
+//                      tarjeta que dejó el cliente al reservar por la web.
 
 const PERMISSIONS = {
   reservations: 'Reservas: ver, crear, sentar, mover, cancelar y no-show',
@@ -29,6 +31,7 @@ const PERMISSIONS = {
   surveys: 'Encuestas de satisfacción',
   users: 'Usuarios y claves de la API',
   customer_tags: 'Etiquetas de clientes y desbloqueo de la reserva web',
+  penalties: 'Cobrar penalizaciones con la tarjeta de garantía',
 };
 
 const ROLES = {
@@ -41,17 +44,17 @@ const ROLES = {
   operaciones: {
     label: 'Operaciones',
     description: 'Todo salvo usuarios y API, en los locales asignados.',
-    permissions: ['reservations', 'closures', 'schedule', 'floorplans', 'reports', 'reports_customers', 'surveys'],
+    permissions: ['reservations', 'closures', 'schedule', 'floorplans', 'reports', 'reports_customers', 'surveys', 'penalties'],
   },
   franquiciado: {
     label: 'Franquiciado',
     description: 'Reservas, cierres, informes (con clientes) y encuestas de sus locales. No cambia horario semanal, cupos ni planos.',
-    permissions: ['reservations', 'closures', 'reports', 'reports_customers', 'surveys'],
+    permissions: ['reservations', 'closures', 'reports', 'reports_customers', 'surveys', 'penalties'],
   },
   encargado: {
     label: 'Encargado',
     description: 'Reservas, cierres, informes (sin datos de clientes) y encuestas de su local.',
-    permissions: ['reservations', 'closures', 'reports', 'surveys'],
+    permissions: ['reservations', 'closures', 'reports', 'surveys', 'penalties'],
   },
   sala: {
     label: 'Sala',
