@@ -15,6 +15,9 @@
 //   reports_customers  Informes con datos de clientes (listado, mejores clientes, origen).
 //   surveys            Respuestas de la encuesta de satisfacción.
 //   users              Usuarios del panel y claves de la API de integración.
+//   customer_tags      Etiquetas de clientes (VIP, Lista negra…) y levantar el bloqueo de la
+//                      reserva web. Las alergias y notas de la ficha las anota cualquiera
+//                      con permiso reservations.
 
 const PERMISSIONS = {
   reservations: 'Reservas: ver, crear, sentar, mover, cancelar y no-show',
@@ -25,6 +28,7 @@ const PERMISSIONS = {
   reports_customers: 'Informes con datos de clientes',
   surveys: 'Encuestas de satisfacción',
   users: 'Usuarios y claves de la API',
+  customer_tags: 'Etiquetas de clientes y desbloqueo de la reserva web',
 };
 
 const ROLES = {

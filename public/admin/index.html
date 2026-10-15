@@ -82,6 +82,7 @@
       <label class="field"><span>Nombre</span><input type="text" id="mName"></label>
       <label class="field"><span>Teléfono</span><input type="tel" id="mPhone"></label>
     </div>
+    <div id="mCustomerInfo" class="m-customer-info"></div>
     <div class="field-row">
       <label class="field" style="flex:1"><span>Email del cliente <small style="font-weight:400;color:var(--text-muted)">(opcional: confirmación y encuesta)</small></span><input type="email" id="mEmail" autocomplete="off" placeholder="cliente@correo.com"></label>
     </div>
@@ -125,6 +126,11 @@
 <script src="/vendor/xlsx.full.min.js" defer></script>
 <script src="/admin/authbar.js"></script>
 <script src="/admin/floorplan.js"></script>
+<!-- Ficha de cliente -->
+<div class="modal-backdrop hidden" id="custBackdrop">
+  <div class="modal cust-modal" id="custSheet"></div>
+</div>
+<script src="/admin/cliente.js"></script>
 <script src="/admin/admin.js"></script>
 </body>
 </html>

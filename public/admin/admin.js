@@ -137,7 +137,13 @@ function renderFloorPlanView() {
       if (!list.length) return null;
       const r = reservationToDrag(t);
       const first = `${r.time} · ${r.party_size}p${list.length > 1 ? ` (+${list.length - 1})` : ''}`;
-      const name = r.source === 'walkin' && (!r.customer_name || r.customer_name === 'Walk-in') ? 'Walk-in' : r.customer_name.split(' ')[0];
+      let name = r.source === 'walkin' && (!r.customer_name || r.customer_name === 'Walk-in') ? 'Walk-in' : r.customer_name.split(' ')[0];
+      // Avisos del cliente en la propia mesa: ★ VIP, ⚠ lista negra, no-show o alergias.
+      const c = r.customer;
+      if (c) {
+        if ((c.tags || []).includes('vip')) name = '★ ' + name;
+        if ((c.tags || []).includes('blacklist') || c.noShows || (c.allergies || []).length) name = '⚠ ' + name;
+      }
       return [first, name];
     },
     features: RESTAURANT_ID === 1 ? SALA_INTERIOR_FEATURES : [],
@@ -230,9 +236,11 @@ function renderRow(r) {
   const info = document.createElement('div');
   info.className = 'res-info';
   info.innerHTML = `
-    <div class="res-name">${escapeHtml(r.customer_name)} · ${r.party_size}p ${r.tables && r.tables.length ? `· Mesa ${r.tables.join(', ')}` : ''}</div>
+    <div class="res-name">${r.phone ? `<button type="button" class="res-cust-link" title="Ver ficha del cliente">${escapeHtml(r.customer_name)}</button>` : escapeHtml(r.customer_name)} · ${r.party_size}p ${r.tables && r.tables.length ? `· Mesa ${r.tables.join(', ')}` : ''}</div>
+    ${customerChips(r.customer)}
     <div class="res-meta">${r.phone || ''} ${r.notes ? '· ' + escapeHtml(r.notes) : ''}</div>
   `;
+  info.querySelector('.res-cust-link')?.addEventListener('click', () => openCustomerCard(r.phone, loadReservations));
 
   const flow = STATUS_FLOW[r.status] || {};
   let badgeExtraClass = '';
@@ -341,6 +349,7 @@ function openTableSheet(t) {
         <div><span class="ts-res-name">${r.time} · ${escapeHtml(r.customer_name)}</span> · ${r.party_size}p</div>
         <span class="res-badge ${flow.color || ''}">${escapeHtml(STATUS_LABELS[r.status] || r.status)}</span>
       </div>
+      ${customerChips(r.customer)}
       <div class="ts-res-meta">${r.source === 'walkin' ? 'Walk-in' : (r.phone ? escapeHtml(r.phone) : '')}${otherTables.length ? ' · junto con mesa ' + otherTables.map(escapeHtml).join(', ') : ''}${r.notes ? ' · ' + escapeHtml(r.notes) : ''}</div>
       ${canAct ? `<div class="ts-res-actions">
         ${flow.next && flow.next !== 'completed' ? `<button class="primary" data-act="next">${escapeHtml(flow.nextLabel)}</button>` : ''}
@@ -351,6 +360,7 @@ function openTableSheet(t) {
         <button class="btn-cancel-restaurant" data-act="cancel-restaurant">Cancela restaurante</button>
         <button class="btn-cancel-customer" data-act="cancel-customer">Cancela cliente</button>
       </div>` : ''}
+      ${r.phone ? '<div class="ts-res-actions"><button data-act="customer">Ficha del cliente</button></div>' : ''}
     </div>`;
   }).join('') : '<p class="ts-empty">Sin reservas en esta mesa en el turno de ' + escapeHtml(state.shift) + '.</p>';
 
@@ -380,6 +390,7 @@ function openTableSheet(t) {
       reopenSheet();
     });
     el.querySelector('[data-act="move"]')?.addEventListener('click', () => startMove(r));
+    el.querySelector('[data-act="customer"]')?.addEventListener('click', () => openCustomerCard(r.phone, async () => { await loadReservations(); reopenSheet(); }));
     el.querySelector('[data-act="release"]')?.addEventListener('click', async () => {
       await releaseTable(r.id);
       closeTableSheet();
@@ -715,6 +726,7 @@ function openModal(table) {
   $('mName').value = '';
   $('mPhone').value = '';
   $('mEmail').value = '';
+  $('mCustomerInfo').innerHTML = '';
   $('mDate').value = state.date;
   $('mTime').value = '';
   $('mAnyTime').checked = false;
@@ -888,13 +900,17 @@ function xlsxOk() {
 
 function downloadDayXlsx() {
   if (!xlsxOk()) return;
-  const columns = ['Fecha', 'Hora', 'Turno', 'Cliente', 'Comensales', 'Mesa', 'Estado', 'Cancelada por', 'Canal', 'Teléfono', 'Email', 'Notas'];
+  const columns = ['Fecha', 'Hora', 'Turno', 'Cliente', 'Comensales', 'Mesa', 'Estado', 'Cancelada por', 'Canal', 'Teléfono', 'Email', 'Notas',
+    'Etiquetas', 'Alergias', 'No-shows (grupo)', 'Visitas (grupo)'];
   const rows = [...state.reservations]
     .sort((a, b) => a.time.localeCompare(b.time))
     .map(r => [r.date, r.time, shiftLabel(r.time), r.customer_name, r.party_size, (r.tables || []).join('+'),
       STATUS_LABELS[r.status] || r.status,
       r.status === 'cancelled' ? ({ customer: 'Cliente', restaurant: 'Restaurante' }[r.cancelled_by] || '') : '',
-      CANAL_LABELS[r.source] || r.source, r.phone || '', r.email || '', r.notes || '']);
+      CANAL_LABELS[r.source] || r.source, r.phone || '', r.email || '', r.notes || '',
+      r.customer ? (r.customer.tags || []).map(t => CUST_TAG_LABELS[t] || t).join(', ') : '',
+      r.customer ? (r.customer.allergies || []).join(', ') : '',
+      r.customer ? r.customer.noShows : '', r.customer ? r.customer.visits : '']);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, xlsxSheet(columns, rows), 'Reservas');
   XLSX.writeFile(wb, `reservas-${restaurantSlug()}-${state.date}.xlsx`, { compression: true });
@@ -953,6 +969,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('openNewBtn').addEventListener('click', () => openModal());
   $('modalCancelBtn').addEventListener('click', closeModal);
   $('mDate').addEventListener('change', loadModalSlots);
+  watchPhoneForCustomer();
+  $('custBackdrop').addEventListener('click', (e) => { if (e.target.id === 'custBackdrop') closeCustomerCard(); });
   $('mAnyTime').addEventListener('change', loadModalSlots);
   $('modalSaveBtn').addEventListener('click', saveModal);
 

@@ -238,6 +238,36 @@ async function initDb() {
     );
   `);
 
+  // Ficha de cliente común a todo el grupo (etiquetas, alergias, notas), identificada por
+  // el teléfono normalizado: solo dígitos, sin prefijo internacional 00 ni el 34 de España
+  // delante de un número español de 9 cifras. La misma regla está en server/customers.js
+  // (normPhone) — si se cambia una, hay que cambiar la otra.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION saona_norm_phone(p TEXT) RETURNS TEXT
+    LANGUAGE sql IMMUTABLE AS $fn$
+      SELECT CASE
+        WHEN d IS NULL OR d = '' THEN NULL
+        WHEN d ~ '^0034[0-9]{9}$' THEN substr(d, 5)
+        WHEN d ~ '^34[6789][0-9]{8}$' THEN substr(d, 3)
+        WHEN d ~ '^00' THEN substr(d, 3)
+        ELSE d END
+      FROM (SELECT regexp_replace(COALESCE(p, ''), '[^0-9]', '', 'g') AS d) s
+    $fn$;
+    CREATE INDEX IF NOT EXISTS idx_reservations_phone_norm ON reservations (saona_norm_phone(phone));
+    CREATE TABLE IF NOT EXISTS customer_profiles (
+      id SERIAL PRIMARY KEY,
+      phone_norm TEXT NOT NULL UNIQUE,
+      tags TEXT[] NOT NULL DEFAULT '{}',
+      allergies TEXT[] NOT NULL DEFAULT '{}',
+      notes TEXT,
+      -- Los no-shows anteriores a este momento ya no bloquean la reserva web (lo levanta
+      -- el Administrador desde la ficha). Mismo formato que created_at.
+      web_unblocked_at TEXT,
+      updated_at TEXT,
+      updated_by INTEGER
+    );
+  `);
+
   // Primer arranque: si no hay ninguna credencial de acceso al panel de personal, se crea una.
   // Antes se sembraba con la contraseña fija "123456" — cualquiera que viera este código (o lo
   // adivinara) tenía acceso al panel en producción. Ahora: si se define ADMIN_INITIAL_PASSWORD

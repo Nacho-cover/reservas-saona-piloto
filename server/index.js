@@ -26,6 +26,11 @@ app.use('/api/admin/api-keys', require('./integrationApi').adminRouter);
 // Informes descargables (equivalentes a los de Cover) — ver server/reports.js.
 app.use('/api/reports', require('./reports'));
 
+// Ficha de cliente común al grupo (etiquetas, alergias, historial, bloqueo web) — ver
+// server/customers.js.
+const customers = require('./customers');
+app.use('/api/customers', customers.router);
+
 // --- Helpers -----------------------------------------------------------
 async function getRestaurant(id) {
   const { rows } = await db.query('SELECT * FROM restaurants WHERE id = $1', [id]);
@@ -287,6 +292,12 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
     if (!email) {
       return res.status(400).json({ error: 'Indica un email para poder enviarte la confirmación de la reserva.' });
     }
+    // Lista negra o no-show anterior (en cualquier local del grupo): no se reserva por la
+    // web, tiene que llamar. Al cliente no se le dice el motivo.
+    const block = await customers.webBlockFor({ phone, email });
+    if (block.blocked) {
+      return res.status(403).json({ error: `No podemos completar tu reserva online. Llama al restaurante${restaurant.phone ? ' (' + restaurant.phone + ')' : ''} y te atenderemos encantados.` });
+    }
     if (await availability.isClosed(restaurant.id, date)) {
       return res.status(409).json({ error: 'El restaurante está cerrado ese día. Elige otra fecha.' });
     }
@@ -409,7 +420,13 @@ app.get('/api/reservations', can('reservations'), requireRestaurant, async (req,
   for (const tr of tableRows) {
     (tablesByReservation[tr.reservation_id] = tablesByReservation[tr.reservation_id] || []).push(tr.name);
   }
-  res.json(rows.map(r => ({ ...r, tables: tablesByReservation[r.id] || [] })));
+  // Avisos del cliente (etiquetas, alergias, no-shows en el grupo) para pintarlos en el panel.
+  const summaries = await customers.summariesByPhone(rows.map(r => r.phone).filter(Boolean));
+  res.json(rows.map(r => ({
+    ...r,
+    tables: tablesByReservation[r.id] || [],
+    customer: summaries[customers.normPhone(r.phone)] || null,
+  })));
 });
 
 // Resumen por día (para la vista mensual) — cuántas reservas y comensales hay cada
