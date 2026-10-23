@@ -1,12 +1,11 @@
 const RESTAURANT_ID = getRestaurantId(); // getRestaurantId() en authbar.js (selector de local)
 const $ = (id) => document.getElementById(id);
 
-const state = { plans: [], selectedPlanId: null, zones: [], tables: [], combos: [], schedule: [] };
+const state = { plans: [], selectedPlanId: null, zones: [], tables: [], combos: [], schedule: [], moveUndo: [] };
 
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str == null ? '' : String(str);
-  return div.innerHTML;
+  // Escapa también comillas: se usa dentro de atributos (title="…", data-…="…").
+  return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 async function api(path, opts) {
@@ -96,14 +95,64 @@ async function loadPlanDetail() {
     features: isPlazaEspana() ? SALA_INTERIOR_FEATURES : [],
     zoneLabels: isPlazaEspana() ? SALA_INTERIOR_ZONE_LABELS : [],
     editable: true,
+    // Cada arrastre se guarda solo; se avisa de si se guardó o no, y se puede deshacer
+    // el último movimiento (auditoría 17/10, H-05).
     onMove: async (table, x, y) => {
-      await api(`/api/tables/${table.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ posX: x, posY: y }),
-      });
+      const prev = { id: table.id, name: table.name, x: table.pos_x, y: table.pos_y };
+      setMoveStatus('Guardando…');
+      try {
+        const saved = await api(`/api/tables/${table.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ posX: x, posY: y }),
+        });
+        table.pos_x = saved.pos_x; table.pos_y = saved.pos_y;
+        state.moveUndo.push(prev);
+        if (state.moveUndo.length > 20) state.moveUndo.shift();
+        setMoveStatus(`Mesa ${prev.name} movida y guardada.`, true);
+      } catch (err) {
+        setMoveStatus(`No se pudo guardar la posición de la mesa ${prev.name}: ${err.message}. Se ha vuelto a colocar donde estaba.`, false, true);
+        await loadPlanDetail();
+      }
     },
     onClick: openEditTableModal,
   });
+}
+
+// Línea de estado del plano visual: confirma cada guardado y ofrece deshacer.
+function setMoveStatus(text, canUndo = false, isError = false) {
+  let box = document.getElementById('moveStatus');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'moveStatus';
+    box.className = 'cfg-hint';
+    box.setAttribute('role', 'status');
+    box.setAttribute('aria-live', 'polite');
+    $('floorPlanView').insertAdjacentElement('beforebegin', box);
+  }
+  box.textContent = text + ' ';
+  box.style.color = isError ? 'var(--danger, #b42318)' : '';
+  if (canUndo && state.moveUndo.length) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = 'Deshacer';
+    b.addEventListener('click', undoLastMove);
+    box.appendChild(b);
+  }
+}
+
+async function undoLastMove() {
+  const last = state.moveUndo.pop();
+  if (!last) return;
+  try {
+    await api(`/api/tables/${last.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ posX: last.x, posY: last.y }),
+    });
+    await loadPlanDetail();
+    setMoveStatus(`Mesa ${last.name} devuelta a su sitio.`, true);
+  } catch (err) {
+    setMoveStatus(`No se pudo deshacer: ${err.message}`, false, true);
+  }
 }
 
 function renderZones() {
@@ -116,8 +165,12 @@ function renderZones() {
     const del = document.createElement('button');
     del.textContent = '✕';
     del.title = 'Eliminar zona';
+    del.setAttribute('aria-label', `Eliminar zona ${z.name}`);
     del.addEventListener('click', async () => {
-      await api(`/api/zones/${z.id}`, { method: 'DELETE' });
+      if (!confirm(`¿Eliminar la zona ${z.name}? Sus mesas se quedan sin zona.`)) return;
+      try {
+        await api(`/api/zones/${z.id}`, { method: 'DELETE' });
+      } catch (err) { alert(err.message); }
       await loadPlanDetail();
     });
     chip.appendChild(del);
@@ -141,9 +194,20 @@ function renderTables() {
     `;
     const del = document.createElement('button');
     del.textContent = 'Eliminar';
+    del.setAttribute('aria-label', `Eliminar mesa ${t.name}`);
     del.addEventListener('click', async () => {
       if (!confirm(`¿Eliminar la mesa ${t.name}? Las reservas ya hechas con esta mesa no se ven afectadas.`)) return;
-      await api(`/api/tables/${t.id}`, { method: 'DELETE' });
+      // Si tiene reservas de hoy en adelante, el servidor avisa (dejarían de verse en el
+      // plano) y solo se elimina si se confirma una segunda vez.
+      const res = await fetch(`/api/tables/${t.id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409 && data.futureReservations) {
+        if (!confirm(`${data.error}\n\n¿Eliminarla igualmente? Esas reservas conservarán la mesa, pero no se verán en el plano.`)) return;
+        const res2 = await fetch(`/api/tables/${t.id}?force=1`, { method: 'DELETE' });
+        if (!res2.ok) alert((await res2.json().catch(() => ({}))).error || 'No se pudo eliminar la mesa.');
+      } else if (!res.ok) {
+        alert(data.error || 'No se pudo eliminar la mesa.');
+      }
       await loadPlanDetail();
     });
     row.appendChild(del);
@@ -226,14 +290,25 @@ function renderCombos() {
     const row = document.createElement('div');
     row.className = 'table-row';
     const minTxt = c.capacity_min != null ? `${c.capacity_min}-` : 'hasta ';
+    // Aviso cuando el aforo fijado a mano se aleja mucho de la suma de las mesas
+    // (p. ej. los "cierre total" que Cover guarda con 250): auditoría 17/10, H-01/H-02.
+    const sum = c.sumMax != null ? c.sumMax : c.tables.reduce((n, t) => n + (t.capacity_max || 0), 0);
+    const manual = c.capacity_max != null;
+    const far = manual && (c.capacity_max > sum * 1.5 || c.capacity_max - sum > 20);
+    const sumTxt = manual && c.capacity_max !== sum ? ` <span class="muted-small">(suma de mesas ${sum}p)</span>` : '';
+    const warn = far ? ` <span class="combo-warn" title="El aforo fijado a mano es muy superior a la suma de las mesas. Revísalo: se usa para asignar mesa.">⚠ revisar aforo</span>` : '';
     row.innerHTML = `
       <span class="t-name">${escapeHtml(c.name)}</span>
-      <span class="t-meta">${c.tables.map(t => escapeHtml(t.name)).join(' + ')} · ${minTxt}${c.combinedMax}p</span>
+      <span class="t-meta">${c.tables.map(t => escapeHtml(t.name)).join(' + ')} · ${minTxt}${c.combinedMax}p${sumTxt}${warn}</span>
     `;
     const del = document.createElement('button');
     del.textContent = 'Eliminar';
+    del.setAttribute('aria-label', `Eliminar combinación ${c.name}`);
     del.addEventListener('click', async () => {
-      await api(`/api/combinations/${c.id}`, { method: 'DELETE' });
+      if (!confirm(`¿Eliminar la combinación ${c.name}? Las reservas ya hechas no cambian.`)) return;
+      try {
+        await api(`/api/combinations/${c.id}`, { method: 'DELETE' });
+      } catch (err) { alert(err.message); }
       await loadPlanDetail();
     });
     row.appendChild(del);

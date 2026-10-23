@@ -22,6 +22,9 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+// Escapa texto antes de meterlo en HTML (nombres, mesas, zonas…): evita que un texto
+// con etiquetas se ejecute como código en la página (auditoría 17/10, H-09).
+const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function showStep(id) {
   document.querySelectorAll('.step').forEach(s => s.classList.add('hidden'));
@@ -231,7 +234,7 @@ function goToForm() {
   $('formSummary').innerHTML = '';
   const chip = document.createElement('div');
   chip.className = 'recap-chip';
-  const zoneLine = state.zoneName ? `<br>${state.zoneName}` : '';
+  const zoneLine = state.zoneName ? `<br>${esc(state.zoneName)}` : '';
   chip.innerHTML = `
     <div class="recap-ic">🕐</div>
     <div class="recap-txt"><b>${dateFmtLong()}</b><br>${state.selectedTime}h · ${partyWord()}${zoneLine}</div>
@@ -286,14 +289,14 @@ async function confirmReservation() {
 
     const dateFmt = new Date(state.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
     const zoneLine = (data.zoneNames && data.zoneNames.length)
-      ? `<br><span class="recap-zone">📍 ${data.zoneNames.join(', ')}</span>`
+      ? `<br><span class="recap-zone">📍 ${esc(data.zoneNames.join(', '))}</span>`
       : '';
     $('confirmBox').innerHTML = `
-      <strong>${state.restaurant.name}</strong><br>
-      ${dateFmt} · ${state.selectedTime}h<br>
+      <strong>${esc(state.restaurant.name)}</strong><br>
+      ${dateFmt} · ${esc(state.selectedTime)}h<br>
       ${state.partySize} ${state.partySize === 1 ? 'persona' : 'personas'}<br>
-      Mesa: ${data.tables.join(', ')}${zoneLine}<br>
-      A nombre de: ${customerName}
+      Mesa: ${esc(data.tables.join(', '))}${zoneLine}<br>
+      A nombre de: ${esc(customerName)}
     `;
     showStep('step-confirm');
   } catch (err) {
@@ -327,15 +330,15 @@ function goToRedsys({ url, fields }, formId = 'redsysForm') {
 
 function showConfirmation(d) {
   const dateFmt = new Date(d.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
-  const zoneLine = (d.zoneNames && d.zoneNames.length) ? `<br><span class="recap-zone">📍 ${d.zoneNames.join(', ')}</span>` : '';
+  const zoneLine = (d.zoneNames && d.zoneNames.length) ? `<br><span class="recap-zone">📍 ${esc(d.zoneNames.join(', '))}</span>` : '';
   const card = d.guarantee_status === 'ok'
-    ? `<br>💳 Garantizada con tu tarjeta${d.card_last4 ? ' ···' + d.card_last4 : ''} (no se ha cobrado nada)` : '';
+    ? `<br>💳 Garantizada con tu tarjeta${d.card_last4 ? ' ···' + esc(d.card_last4) : ''} (no se ha cobrado nada)` : '';
   $('confirmBox').innerHTML = `
-    <strong>${d.restaurant_name || (state.restaurant && state.restaurant.name) || ''}</strong><br>
-    ${dateFmt} · ${d.time}h<br>
-    ${d.party_size} ${d.party_size === 1 ? 'persona' : 'personas'}<br>
-    Mesa: ${(d.tables || []).join(', ')}${zoneLine}<br>
-    A nombre de: ${d.customer_name}${card}
+    <strong>${esc(d.restaurant_name || (state.restaurant && state.restaurant.name) || '')}</strong><br>
+    ${dateFmt} · ${esc(d.time)}h<br>
+    ${Number(d.party_size)} ${d.party_size === 1 ? 'persona' : 'personas'}<br>
+    Mesa: ${esc((d.tables || []).join(', '))}${zoneLine}<br>
+    A nombre de: ${esc(d.customer_name)}${card}
   `;
   showStep('step-confirm');
 }
@@ -426,7 +429,7 @@ async function handleWaitlistOffer() {
   state.restaurant = { ...(state.restaurant || {}), ...w.restaurant };
   state.partySize = w.partySize;
   const dateFmt = new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
-  $('offerBox').innerHTML = `<strong>${w.restaurant.name}</strong><br>${dateFmt} · ${w.offerTime}h<br>${w.partySize} ${w.partySize === 1 ? 'persona' : 'personas'}<br>A nombre de: ${w.customerName}`;
+  $('offerBox').innerHTML = `<strong>${esc(w.restaurant.name)}</strong><br>${dateFmt} · ${esc(w.offerTime)}h<br>${Number(w.partySize)} ${w.partySize === 1 ? 'persona' : 'personas'}<br>A nombre de: ${esc(w.customerName)}`;
   const g = w.restaurant.guarantee_enabled;
   $('offerGuarantee').classList.toggle('hidden', !g);
   if (g) {
@@ -489,7 +492,7 @@ async function handleManage() {
     const dateFmt = new Date(d.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
     const st = d.status === 'cancelled' ? '<br><b style="color:var(--danger)">Reserva cancelada</b>'
       : (d.customer_confirmed_at ? '<br><b style="color:#1e7a34">✓ Asistencia confirmada</b>' : '');
-    $('manageBox').innerHTML = `<strong>${d.restaurant_name}</strong><br>${dateFmt} · ${d.time}h<br>${d.party_size} ${d.party_size === 1 ? 'persona' : 'personas'}<br>A nombre de: ${d.customer_name}${st}`;
+    $('manageBox').innerHTML = `<strong>${esc(d.restaurant_name)}</strong><br>${dateFmt} · ${esc(d.time)}h<br>${Number(d.party_size)} ${d.party_size === 1 ? 'persona' : 'personas'}<br>A nombre de: ${esc(d.customer_name)}${st}`;
     $('manageActions').classList.toggle('hidden', !d.canChange);
     $('manageConfirmBtn').classList.toggle('hidden', !!d.customer_confirmed_at);
     $('manageNote').textContent = d.canChange

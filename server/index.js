@@ -11,7 +11,38 @@ const { sendConfirmationEmail } = require('./email');
 const { verifySurveyToken, sendSurveyEmail } = require('./survey');
 
 const app = express();
-app.use(cors());
+app.disable('x-powered-by');
+// Cabeceras de seguridad (auditoría 17/10, H-12): nada de la app se puede meter en un
+// iframe de otra web, el navegador no adivina tipos de fichero, HTTPS obligatorio en
+// producción y las respuestas de la API (con datos de reservas) no se guardan en caché.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  }
+  if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+// CORS: solo la API de integración (/api/v1, con clave) se puede llamar desde otras
+// webs. El panel y la web de reservas solo desde la propia app.
+app.use('/api/v1', cors());
+// Protección CSRF (H-08): un cambio hecho con la sesión del panel tiene que venir de la
+// propia web. La cookie ya es SameSite=Lax; esto es una segunda barrera. Las llamadas
+// sin cookie de sesión (Redsys, procesos programados, clientes de la web) no se tocan.
+app.use((req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  if (!adminAuth.parseCookies(req).admin_session) return next();
+  const origin = req.get('origin') || req.get('referer');
+  if (!origin) return next(); // navegadores antiguos o herramientas: la cookie Lax ya protege
+  let host;
+  try { host = new URL(origin).host; } catch (e) { host = null; }
+  if (host && host === req.get('host')) return next();
+  return res.status(403).json({ error: 'Petición rechazada: no viene de la propia aplicación.' });
+});
 app.use(express.json({ limit: '1mb' }));
 // Registro de actividad: apunta cada cambio hecho desde el panel (ver server/audit.js).
 const audit = require('./audit');
@@ -49,6 +80,20 @@ const waitlist = require('./waitlist');
 app.use(waitlist.makeRouter());
 
 // --- Helpers -----------------------------------------------------------
+// Validación de datos de entrada (auditoría 17/10, H-10): se comprueba en el servidor,
+// no solo en el formulario. Devuelve un mensaje de error o null.
+const isDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v + 'T00:00:00Z'));
+const isTime = (v) => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+const isEndTime = (v) => isTime(v) || v === '24:00'; // Palacio de Congresos cierra a las 24:00
+const isInt = (v, min, max) => Number.isInteger(Number(v)) && v !== '' && v !== null && Number(v) >= min && Number(v) <= max;
+function cleanName(v, max = 60) {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  return t && t.length <= max ? t : null;
+}
+const MAX_TABLE_CAPACITY = 50;      // una mesa sola
+const MAX_COMBO_CAPACITY = 500;     // una combinación (los "cierre total" de Cover usan 250)
+
 async function getRestaurant(id) {
   const { rows } = await db.query('SELECT * FROM restaurants WHERE id = $1', [id]);
   return rows[0];
@@ -76,6 +121,24 @@ async function planOfRestaurant(req, res, next) {
   if (!rows.length) return res.status(400).json({ error: 'Ese plano no es de este local.' });
   next();
 }
+
+// Una zona que se asigna a una mesa tiene que ser del mismo plano que la mesa (si no,
+// alguien con acceso a un local podría colgar mesas de zonas de otro local).
+async function zoneOfPlan(zoneId, floorPlanId) {
+  if (zoneId == null || zoneId === '') return true;
+  const { rows } = await db.query('SELECT 1 FROM zones WHERE id = $1 AND floor_plan_id = $2', [Number(zoneId), Number(floorPlanId)]);
+  return rows.length > 0;
+}
+
+// Comprueba los aforos de una mesa o combinación (enteros, mínimo <= máximo, con tope).
+function capacityError(min, max, top, what) {
+  if (!isInt(max, 1, top)) return `El aforo máximo de ${what} tiene que ser un número entero entre 1 y ${top}.`;
+  if (min != null && min !== '' && !isInt(min, 0, top)) return `El aforo mínimo de ${what} tiene que ser un número entero entre 0 y ${top}.`;
+  if (min != null && min !== '' && Number(min) > Number(max)) return `El aforo mínimo de ${what} no puede ser mayor que el máximo.`;
+  return null;
+}
+const clampPos = (v) => Math.max(0, Math.min(100, Math.round(Number(v))));
+const isPos = (v) => v != null && v !== '' && Number.isFinite(Number(v));
 
 // Datos del usuario que se mandan al panel (nunca el hash de la contraseña).
 async function describeUser(user) {
@@ -263,6 +326,24 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
   if (!customerName || !partySize || !date || !time) {
     return res.status(400).json({ error: 'customerName, partySize, date y time son obligatorios' });
   }
+  if (!isDate(date) || !isTime(time)) return res.status(400).json({ error: 'Fecha u hora no válidas.' });
+  if (!isInt(partySize, 1, 999)) return res.status(400).json({ error: 'Número de comensales no válido.' });
+  if (typeof customerName !== 'string' || customerName.trim().length > 120) {
+    return res.status(400).json({ error: 'El nombre es demasiado largo (máximo 120 caracteres).' });
+  }
+  if (phone != null && phone !== '' && (typeof phone !== 'string' || !/^[0-9+()\s.-]{6,25}$/.test(phone))) {
+    return res.status(400).json({ error: 'El teléfono no es válido.' });
+  }
+  if (email != null && email !== '' && (typeof email !== 'string' || email.length > 200 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email))) {
+    return res.status(400).json({ error: 'El email no es válido.' });
+  }
+  if (notes != null && (typeof notes !== 'string' || notes.length > 1000)) {
+    return res.status(400).json({ error: 'Las observaciones son demasiado largas (máximo 1000 caracteres).' });
+  }
+  if (req.body.tableIds != null && (!Array.isArray(req.body.tableIds) || req.body.tableIds.length > 60
+      || !req.body.tableIds.every(id => Number.isInteger(Number(id)) && Number(id) > 0))) {
+    return res.status(400).json({ error: 'Mesas no válidas.' });
+  }
   const restaurant = req.restaurant;
   const bookingSource = source || 'web';
   // Las reservas de teléfono, panel y walk-in solo puede crearlas el personal con sesión
@@ -347,67 +428,85 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
   const buffer = restaurant.turnover_buffer_minutes;
   const startMinutes = availability.toMinutes(time);
 
-  // If the customer picked a specific table (or combo) on the visual floor plan, honor
-  // that choice — but re-validate it fresh rather than trusting what the client sent,
-  // since time may have passed since the floor plan was shown. Admin/phone bookings (and
-  // any client that doesn't send tableIds) keep the old auto-assign behavior.
-  let tables;
-  if (Array.isArray(req.body.tableIds) && req.body.tableIds.length) {
-    tables = await availability.validateChosenTables(
-      restaurant.id, date, req.body.tableIds, startMinutes, duration, Number(partySize), buffer, null, { ignoreCapacity }
-    );
-    if (!tables) {
-      return res.status(409).json({ error: isStaffBooking
-        ? 'Esa mesa no está libre a esa hora (o no encaja con el número de comensales).'
-        : 'La mesa elegida ya no está disponible. Vuelve a elegir mesa en el plano.' });
+  // Comprobar que la mesa está libre y guardarla va dentro de un mismo bloqueo por local y
+  // día (auditoría 17/10, H-03): dos clientes que piden la misma mesa a la vez ya no
+  // pueden quedarse los dos con ella; el segundo recibe "ya no está disponible".
+  const outcome = await db.withBookingLock(restaurant.id, date, async (client) => {
+    // Doble clic o doble envío (H-14): el mismo cliente no puede tener dos reservas web
+    // activas a la misma hora en el mismo local.
+    if (!isStaffBooking && (phone || email)) {
+      const { rows: dup } = await client.query(`SELECT id FROM reservations WHERE restaurant_id = $1 AND date = $2 AND time = $3
+        AND status NOT IN ('cancelled','no_show') AND ((phone IS NOT NULL AND phone = $4) OR (email IS NOT NULL AND lower(email) = lower($5)))`,
+        [restaurant.id, date, time, phone || null, email || null]);
+      if (dup.length) return { error: 409, message: 'Ya tienes una reserva a esa hora en este restaurante. Revisa tu email de confirmación.' };
     }
-  } else {
-    const zoneId = req.body.zoneId ? Number(req.body.zoneId) : null;
-    tables = await availability.findAvailableTable(
-      restaurant.id, date, startMinutes, duration, Number(partySize), buffer, null, zoneId
-    );
-    if (!tables) {
-      return res.status(409).json({ error: 'Ya no hay disponibilidad para esa franja en la zona elegida. Elige otra hora o zona.' });
-    }
-  }
-  // El cupo por intervalo es del motor web (como en Cover): el personal puede anotar por
-  // encima de él por teléfono o sentar walk-ins.
-  if (!isStaffBooking && !(await availability.hasCapacityRoom(restaurant.id, date, startMinutes, Number(partySize), null))) {
-    return res.status(409).json({ error: 'Se ha alcanzado el aforo máximo para esa franja horaria. Elige otra hora.' });
-  }
 
-  const reservationId = await db.withTransaction(async (client) => {
-    let customer = null;
-    if (phone) {
-      const { rows: existingCustomer } = await client.query(
-        'SELECT * FROM customers WHERE restaurant_id = $1 AND phone = $2', [restaurant.id, phone]
+    // If the customer picked a specific table (or combo) on the visual floor plan, honor
+    // that choice — but re-validate it fresh rather than trusting what the client sent,
+    // since time may have passed since the floor plan was shown. Admin/phone bookings (and
+    // any client that doesn't send tableIds) keep the old auto-assign behavior.
+    let tables;
+    if (Array.isArray(req.body.tableIds) && req.body.tableIds.length) {
+      tables = await availability.validateChosenTables(
+        restaurant.id, date, req.body.tableIds.map(Number), startMinutes, duration, Number(partySize), buffer, null,
+        { ignoreCapacity, requireCombination: !isStaffBooking }
       );
-      if (!existingCustomer.length) {
-        const { rows: inserted } = await client.query(
-          'INSERT INTO customers (restaurant_id, name, phone, email, visits) VALUES ($1,$2,$3,$4,1) RETURNING id',
-          [restaurant.id, customerName, phone, email || null]
-        );
-        customer = { id: inserted[0].id };
-      } else {
-        customer = existingCustomer[0];
-        await client.query('UPDATE customers SET visits = visits + 1, name = $1, email = COALESCE($2, email) WHERE id = $3',
-          [customerName, email || null, customer.id]);
+      if (!tables) {
+        return { error: 409, message: isStaffBooking
+          ? 'Esa mesa no está libre a esa hora (o no encaja con el número de comensales).'
+          : 'La mesa elegida ya no está disponible. Vuelve a elegir mesa en el plano.' };
+      }
+    } else {
+      const zoneId = req.body.zoneId ? Number(req.body.zoneId) : null;
+      tables = await availability.findAvailableTable(
+        restaurant.id, date, startMinutes, duration, Number(partySize), buffer, null, zoneId
+      );
+      if (!tables) {
+        return { error: 409, message: 'Ya no hay disponibilidad para esa franja en la zona elegida. Elige otra hora o zona.' };
       }
     }
-
-    const { rows: inserted } = await client.query(`
-      INSERT INTO reservations (restaurant_id, customer_id, customer_name, phone, email, party_size, date, time, duration_minutes, status, source, notes, consent_accepted)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, $13, $10, $11, $12) RETURNING id
-    `, [restaurant.id, customer ? customer.id : null, customerName, phone || null, email || null,
-        Number(partySize), date, time, duration, bookingSource, notes || null, consentAccepted ? 1 : 0,
-        isWalkIn ? 'seated' : (needsCard ? 'pending_card' : 'confirmed')]);
-
-    const reservationId = inserted[0].id;
-    for (const t of tables) {
-      await client.query('INSERT INTO reservation_tables (reservation_id, table_id) VALUES ($1, $2)', [reservationId, t.id]);
+    // El cupo por intervalo es del motor web (como en Cover): el personal puede anotar por
+    // encima de él por teléfono o sentar walk-ins.
+    if (!isStaffBooking && !(await availability.hasCapacityRoom(restaurant.id, date, startMinutes, Number(partySize), null))) {
+      return { error: 409, message: 'Se ha alcanzado el aforo máximo para esa franja horaria. Elige otra hora.' };
     }
-    return reservationId;
+
+    const reservationId = await (async () => {
+      let customer = null;
+      if (phone) {
+        const { rows: existingCustomer } = await client.query(
+          'SELECT * FROM customers WHERE restaurant_id = $1 AND phone = $2', [restaurant.id, phone]
+        );
+        if (!existingCustomer.length) {
+          const { rows: inserted } = await client.query(
+            'INSERT INTO customers (restaurant_id, name, phone, email, visits) VALUES ($1,$2,$3,$4,1) RETURNING id',
+            [restaurant.id, customerName, phone, email || null]
+          );
+          customer = { id: inserted[0].id };
+        } else {
+          customer = existingCustomer[0];
+          await client.query('UPDATE customers SET visits = visits + 1, name = $1, email = COALESCE($2, email) WHERE id = $3',
+            [customerName, email || null, customer.id]);
+        }
+      }
+
+      const { rows: inserted } = await client.query(`
+        INSERT INTO reservations (restaurant_id, customer_id, customer_name, phone, email, party_size, date, time, duration_minutes, status, source, notes, consent_accepted)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, $13, $10, $11, $12) RETURNING id
+      `, [restaurant.id, customer ? customer.id : null, customerName, phone || null, email || null,
+          Number(partySize), date, time, duration, bookingSource, notes || null, consentAccepted ? 1 : 0,
+          isWalkIn ? 'seated' : (needsCard ? 'pending_card' : 'confirmed')]);
+
+      const reservationId = inserted[0].id;
+      for (const t of tables) {
+        await client.query('INSERT INTO reservation_tables (reservation_id, table_id) VALUES ($1, $2)', [reservationId, t.id]);
+      }
+      return reservationId;
+    })();
+    return { reservationId, tables };
   });
+  if (outcome.error) return res.status(outcome.error).json({ error: outcome.message });
+  const { reservationId, tables } = outcome;
 
   const { rows: reservationRows } = await db.query('SELECT * FROM reservations WHERE id = $1', [reservationId]);
   const reservation = reservationRows[0];
@@ -516,6 +615,29 @@ app.patch('/api/reservations/:id', can('reservations'), ownsRow('reservations'),
   if (status === 'cancelled' && !['restaurant', 'customer'].includes(cancelledBy)) {
     return res.status(400).json({ error: 'Indica quién cancela: el restaurante o el cliente.' });
   }
+  if (notes != null && (typeof notes !== 'string' || notes.length > 1000)) {
+    return res.status(400).json({ error: 'Las observaciones son demasiado largas (máximo 1000 caracteres).' });
+  }
+  // Volver a activar una reserva cancelada o no-show: sus mesas pueden haberse dado a otra
+  // reserva entretanto. Solo se permite si siguen libres (si no, doble reserva de la mesa).
+  const reactivating = status && !['cancelled', 'no_show'].includes(status) && ['cancelled', 'no_show'].includes(existing.status);
+  if (reactivating) {
+    const restaurant = await getRestaurant(existing.restaurant_id);
+    const conflict = await db.withBookingLock(existing.restaurant_id, existing.date, async () => {
+      const { rows: tr } = await db.query('SELECT table_id FROM reservation_tables WHERE reservation_id = $1', [existing.id]);
+      if (tr.length) {
+        const ok = await availability.validateChosenTables(existing.restaurant_id, existing.date, tr.map(t => t.table_id),
+          availability.toMinutes(existing.time), existing.duration_minutes, existing.party_size,
+          restaurant.turnover_buffer_minutes, existing.id, { ignoreCapacity: true });
+        if (!ok) return true;
+      }
+      await db.query('UPDATE reservations SET status = $1, cancelled_by = NULL, cancelled_at = NULL WHERE id = $2', [status, existing.id]);
+      return false;
+    });
+    if (conflict) {
+      return res.status(409).json({ error: 'No se puede reactivar: su mesa ya tiene otra reserva a esa hora (o ya no está en el plano de ese día). Crea una reserva nueva o muévela antes.' });
+    }
+  }
 
   // Al pasar a "Pagada" se guarda el momento exacto: la mesa se libera 2 min después
   // de esto (ver availability.tableBusyRanges), no al terminar la duración estándar.
@@ -564,23 +686,28 @@ app.patch('/api/reservations/:id/table', can('reservations'), ownsRow('reservati
   // Revalida en el momento del traslado (no se fía de lo que mostró el plano al
   // personal, por si otra reserva ocupó esa mesa mientras tanto) — excluye la propia
   // reserva de la comprobación de choques, igual que hace validateChosenTables al crear.
+  if (tableIds.length > 60 || !tableIds.every(id => Number.isInteger(Number(id)) && Number(id) > 0)) {
+    return res.status(400).json({ error: 'Mesas no válidas.' });
+  }
   const startMinutes = availability.toMinutes(existing.time);
-  const tables = await availability.validateChosenTables(
-    restaurant.id, existing.date, tableIds, startMinutes, existing.duration_minutes,
-    existing.party_size, restaurant.turnover_buffer_minutes, existing.id, { ignoreCapacity: force === true }
-  );
+  // Comprobar y mover dentro del mismo bloqueo que las reservas nuevas (H-03).
+  const tables = await db.withBookingLock(restaurant.id, existing.date, async (client) => {
+    const ok = await availability.validateChosenTables(
+      restaurant.id, existing.date, tableIds.map(Number), startMinutes, existing.duration_minutes,
+      existing.party_size, restaurant.turnover_buffer_minutes, existing.id, { ignoreCapacity: force === true }
+    );
+    if (!ok) return null;
+    await client.query('DELETE FROM reservation_tables WHERE reservation_id = $1', [existing.id]);
+    for (const t of ok) {
+      await client.query('INSERT INTO reservation_tables (reservation_id, table_id) VALUES ($1, $2)', [existing.id, t.id]);
+    }
+    return ok;
+  });
   if (!tables) {
     return res.status(409).json({ error: force === true
       ? 'Esa mesa ya está ocupada a esa hora. Elige otra.'
       : 'Esa mesa ya no está disponible para esta reserva (ocupada o no encaja con los comensales). Elige otra.' });
   }
-
-  await db.withTransaction(async (client) => {
-    await client.query('DELETE FROM reservation_tables WHERE reservation_id = $1', [existing.id]);
-    for (const t of tables) {
-      await client.query('INSERT INTO reservation_tables (reservation_id, table_id) VALUES ($1, $2)', [existing.id, t.id]);
-    }
-  });
 
   const { rows: tableRows } = await db.query(
     `SELECT t.name FROM reservation_tables rt JOIN tables t ON t.id = rt.table_id WHERE rt.reservation_id = $1`, [existing.id]
@@ -613,24 +740,23 @@ app.post('/api/reservations/swap', can('reservations'), async (req, res) => {
   const restaurant = await getRestaurant(a.restaurant_id);
   req.restaurant = restaurant; // para el registro de actividad
   const tablesOf = async (id) => (await db.query('SELECT table_id FROM reservation_tables WHERE reservation_id = $1', [id])).rows.map(r => r.table_id);
-  const tablesA = await tablesOf(a.id);
-  const tablesB = await tablesOf(b.id);
-  if (!tablesA.length || !tablesB.length) return res.status(400).json({ error: 'Las dos reservas deben tener mesa asignada.' });
-
   const both = [a.id, b.id];
-  const okA = await availability.validateChosenTables(restaurant.id, a.date, tablesB, availability.toMinutes(a.time),
-    a.duration_minutes, a.party_size, restaurant.turnover_buffer_minutes, both, { ignoreCapacity: true });
-  const okB = await availability.validateChosenTables(restaurant.id, b.date, tablesA, availability.toMinutes(b.time),
-    b.duration_minutes, b.party_size, restaurant.turnover_buffer_minutes, both, { ignoreCapacity: true });
-  if (!okA || !okB) {
-    return res.status(409).json({ error: 'No se puede intercambiar: alguna de las mesas tiene otra reserva que se solapa.' });
-  }
-
-  await db.withTransaction(async (client) => {
+  // Comprobar e intercambiar dentro del mismo bloqueo que las reservas nuevas (H-03).
+  const result = await db.withBookingLock(restaurant.id, a.date, async (client) => {
+    const tablesA = await tablesOf(a.id);
+    const tablesB = await tablesOf(b.id);
+    if (!tablesA.length || !tablesB.length) return { status: 400, error: 'Las dos reservas deben tener mesa asignada.' };
+    const okA = await availability.validateChosenTables(restaurant.id, a.date, tablesB, availability.toMinutes(a.time),
+      a.duration_minutes, a.party_size, restaurant.turnover_buffer_minutes, both, { ignoreCapacity: true });
+    const okB = await availability.validateChosenTables(restaurant.id, b.date, tablesA, availability.toMinutes(b.time),
+      b.duration_minutes, b.party_size, restaurant.turnover_buffer_minutes, both, { ignoreCapacity: true });
+    if (!okA || !okB) return { status: 409, error: 'No se puede intercambiar: alguna de las mesas tiene otra reserva que se solapa.' };
     await client.query('DELETE FROM reservation_tables WHERE reservation_id = ANY($1::int[])', [both]);
     for (const t of tablesB) await client.query('INSERT INTO reservation_tables (reservation_id, table_id) VALUES ($1, $2)', [a.id, t]);
     for (const t of tablesA) await client.query('INSERT INTO reservation_tables (reservation_id, table_id) VALUES ($1, $2)', [b.id, t]);
+    return null;
   });
+  if (result) return res.status(result.status).json({ error: result.error });
   res.json({ ok: true });
 });
 
@@ -674,6 +800,10 @@ app.post('/api/shifts', can('schedule'), requireRestaurant, async (req, res) => 
   const { name, dayOfWeek, startTime, endTime, lastSeatingOffsetMinutes } = req.body;
   if (!name || dayOfWeek == null || !startTime || !endTime) {
     return res.status(400).json({ error: 'name, dayOfWeek, startTime y endTime son obligatorios' });
+  }
+  if (!cleanName(name, 40) || !isInt(dayOfWeek, 0, 6) || !isTime(startTime) || !isEndTime(endTime)
+      || (lastSeatingOffsetMinutes != null && !isInt(lastSeatingOffsetMinutes, 0, 600))) {
+    return res.status(400).json({ error: 'Datos del turno no válidos (día 0-6, horas HH:MM).' });
   }
   // floorPlanId: plano de sala de este turno ese día de la semana. Si no viene en el
   // cuerpo, se conserva el que tuviera; null lo quita (vuelve al plano por defecto).
@@ -734,6 +864,9 @@ app.post('/api/shift-date-overrides', can('closures'), requireRestaurant, async 
   if (!Array.isArray(dates) || !dates.length || !shiftName || !startTime || !endTime) {
     return res.status(400).json({ error: 'dates (lista), shiftName, startTime y endTime son obligatorios' });
   }
+  if (dates.length > 400 || !dates.every(isDate) || !isTime(startTime) || !isEndTime(endTime) || !cleanName(shiftName, 40)) {
+    return res.status(400).json({ error: 'Fechas u horas no válidas.' });
+  }
   const saved = [];
   for (const date of dates) {
     const { rows } = await db.query(`
@@ -762,7 +895,10 @@ app.get('/api/closures', can('reservations'), requireRestaurant, async (req, res
 
 app.post('/api/closures', can('closures'), requireRestaurant, async (req, res) => {
   const { date, shift, note } = req.body;
-  if (!date) return res.status(400).json({ error: 'date es obligatorio' });
+  if (!isDate(date)) return res.status(400).json({ error: 'date es obligatorio' });
+  if ((shift != null && shift !== '' && !cleanName(shift, 40)) || (note != null && (typeof note !== 'string' || note.length > 300))) {
+    return res.status(400).json({ error: 'Datos del cierre no válidos.' });
+  }
   const { rows } = await db.query('INSERT INTO closures (restaurant_id, date, shift, note) VALUES ($1,$2,$3,$4) RETURNING *',
     [req.restaurant.id, date, shift || null, note || null]);
   res.status(201).json(rows[0]);
@@ -795,8 +931,9 @@ app.get('/api/floor-plans', can('reservations'), requireRestaurant, async (req, 
 });
 
 app.post('/api/floor-plans', can('floorplans'), requireRestaurant, async (req, res) => {
-  const { name, cloneFromId } = req.body;
-  if (!name) return res.status(400).json({ error: 'name es obligatorio' });
+  const { cloneFromId } = req.body;
+  const name = cleanName(req.body.name, 80);
+  if (!name) return res.status(400).json({ error: 'El nombre del plano es obligatorio (máximo 80 caracteres).' });
   const restaurant = req.restaurant;
 
   let newPlanId;
@@ -857,7 +994,9 @@ app.patch('/api/floor-plans/:id', can('floorplans'), ownsRow('floor_plans'), asy
   const { rows: planRows } = await db.query('SELECT * FROM floor_plans WHERE id = $1', [req.params.id]);
   const plan = planRows[0];
   if (!plan) return res.status(404).json({ error: 'Plano no encontrado' });
-  const { name, isDefault } = req.body;
+  const { isDefault } = req.body;
+  const name = req.body.name != null ? cleanName(req.body.name, 80) : null;
+  if (req.body.name != null && !name) return res.status(400).json({ error: 'El nombre del plano no es válido (máximo 80 caracteres).' });
 
   await db.withTransaction(async (client) => {
     if (name) await client.query('UPDATE floor_plans SET name = $1 WHERE id = $2', [name, plan.id]);
@@ -887,7 +1026,7 @@ app.get('/api/floor-plan-schedule', can('reservations'), requireRestaurant, asyn
 // ya existente para esa fecha: solo cambia qué mesas se ofrecen para reservas NUEVAS.
 app.put('/api/floor-plan-schedule', can('floorplans'), requireRestaurant, async (req, res) => {
   const { date, floorPlanId } = req.body;
-  if (!date || !floorPlanId) return res.status(400).json({ error: 'date y floorPlanId son obligatorios' });
+  if (!isDate(date) || !floorPlanId) return res.status(400).json({ error: 'date y floorPlanId son obligatorios' });
   const { rows: planRows } = await db.query('SELECT * FROM floor_plans WHERE id = $1 AND restaurant_id = $2', [floorPlanId, req.restaurant.id]);
   if (!planRows.length) return res.status(400).json({ error: 'Ese plano no existe para este local' });
 
@@ -917,8 +1056,9 @@ app.get('/api/zones', can('reservations'), requireRestaurant, async (req, res) =
 });
 
 app.post('/api/zones', can('floorplans'), requireRestaurant, planOfRestaurant, async (req, res) => {
-  const { floorPlanId, name, sortOrder } = req.body;
-  if (!floorPlanId || !name) return res.status(400).json({ error: 'floorPlanId y name son obligatorios' });
+  const { floorPlanId, sortOrder } = req.body;
+  const name = cleanName(req.body.name, 60);
+  if (!floorPlanId || !name) return res.status(400).json({ error: 'El nombre de la zona es obligatorio (máximo 60 caracteres).' });
   const { rows } = await db.query('INSERT INTO zones (restaurant_id, floor_plan_id, name, sort_order) VALUES ($1,$2,$3,$4) RETURNING *',
     [req.restaurant.id, floorPlanId, name, sortOrder || 0]);
   res.status(201).json(rows[0]);
@@ -953,17 +1093,21 @@ app.get('/api/tables', can('reservations'), requireRestaurant, async (req, res) 
 });
 
 app.post('/api/tables', can('floorplans'), requireRestaurant, planOfRestaurant, async (req, res) => {
-  const { floorPlanId, zoneId, name, capacityMin, capacityMax, posX, posY } = req.body;
-  if (!floorPlanId || !name || !capacityMax) {
-    return res.status(400).json({ error: 'floorPlanId, name y capacityMax son obligatorios' });
+  const { floorPlanId, zoneId, capacityMin, capacityMax, posX, posY } = req.body;
+  const name = cleanName(req.body.name, 30);
+  if (!floorPlanId || !name || capacityMax == null) {
+    return res.status(400).json({ error: 'El nombre de la mesa (máximo 30 caracteres) y su aforo máximo son obligatorios.' });
   }
+  const capErr = capacityError(capacityMin, capacityMax, MAX_TABLE_CAPACITY, 'la mesa');
+  if (capErr) return res.status(400).json({ error: capErr });
+  if (!(await zoneOfPlan(zoneId, floorPlanId))) return res.status(400).json({ error: 'Esa zona no es de este plano.' });
   // Mesa nueva: se coloca en el centro del plano por defecto — se arrastra a su sitio
   // en el plano visual justo después de crearla.
   const { rows } = await db.query(`
     INSERT INTO tables (restaurant_id, floor_plan_id, zone_id, name, capacity_min, capacity_max, pos_x, pos_y, active)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1) RETURNING *
-  `, [req.restaurant.id, floorPlanId, zoneId || null, name, capacityMin || 1, capacityMax,
-      posX != null ? posX : 50, posY != null ? posY : 50]);
+  `, [req.restaurant.id, floorPlanId, zoneId || null, name, capacityMin != null && capacityMin !== '' ? Number(capacityMin) : 1, Number(capacityMax),
+      isPos(posX) ? clampPos(posX) : 50, isPos(posY) ? clampPos(posY) : 50]);
   res.status(201).json(rows[0]);
 });
 
@@ -975,14 +1119,28 @@ app.patch('/api/tables/:id', can('floorplans'), ownsRow('tables'), async (req, r
   // A diferencia de COALESCE(?, campo) — que no distingue "no lo mandaron" de
   // "lo mandaron como null" —, aquí cada campo solo se toca si viene en el body,
   // así que zoneId: null (p. ej. "Sin zona" en el editor) sí la deja sin zona.
+  if ('name' in body && !cleanName(body.name, 30)) return res.status(400).json({ error: 'El nombre de la mesa no es válido (máximo 30 caracteres).' });
+  if (('posX' in body && body.posX != null && !isPos(body.posX)) || ('posY' in body && body.posY != null && !isPos(body.posY))) {
+    return res.status(400).json({ error: 'Posición no válida.' });
+  }
+  if ('zoneId' in body && !(await zoneOfPlan(body.zoneId, existing.floor_plan_id))) {
+    return res.status(400).json({ error: 'Esa zona no es de este plano.' });
+  }
   const next = {
-    name: 'name' in body ? body.name : existing.name,
+    name: 'name' in body ? cleanName(body.name, 30) : existing.name,
     zone_id: 'zoneId' in body ? body.zoneId : existing.zone_id,
     capacity_min: 'capacityMin' in body && body.capacityMin != null ? body.capacityMin : existing.capacity_min,
     capacity_max: 'capacityMax' in body && body.capacityMax != null ? body.capacityMax : existing.capacity_max,
-    pos_x: 'posX' in body && body.posX != null ? body.posX : existing.pos_x,
-    pos_y: 'posY' in body && body.posY != null ? body.posY : existing.pos_y,
+    // Las posiciones se guardan como entero (0-100 %): el plano manda décimas y la
+    // columna es INTEGER, así que antes un arrastre podía fallar al guardar.
+    pos_x: 'posX' in body && body.posX != null ? clampPos(body.posX) : existing.pos_x,
+    pos_y: 'posY' in body && body.posY != null ? clampPos(body.posY) : existing.pos_y,
   };
+  next.zone_id = next.zone_id === '' || next.zone_id == null ? null : Number(next.zone_id);
+  const capErr = capacityError(next.capacity_min, next.capacity_max, MAX_TABLE_CAPACITY, 'la mesa');
+  if (capErr) return res.status(400).json({ error: capErr });
+  next.capacity_min = Number(next.capacity_min);
+  next.capacity_max = Number(next.capacity_max);
   const { rows } = await db.query(`
     UPDATE tables SET name = $1, zone_id = $2, capacity_min = $3, capacity_max = $4, pos_x = $5, pos_y = $6
     WHERE id = $7 RETURNING *
@@ -995,6 +1153,19 @@ app.patch('/api/tables/:id', can('floorplans'), ownsRow('tables'), async (req, r
 app.delete('/api/tables/:id', can('floorplans'), ownsRow('tables'), async (req, res) => {
   const { rows: existingRows } = await db.query('SELECT * FROM tables WHERE id = $1', [req.params.id]);
   if (!existingRows.length) return res.status(404).json({ error: 'Mesa no encontrada' });
+  // Con reservas de hoy en adelante en esa mesa, no se da de baja sin confirmarlo: esas
+  // reservas dejarían de verse en el plano (auditoría 17/10, H-11).
+  const today = dayjs().format('YYYY-MM-DD');
+  const { rows: future } = await db.query(`SELECT r.date, r.time, r.customer_name FROM reservations r
+    JOIN reservation_tables rt ON rt.reservation_id = r.id
+    WHERE rt.table_id = $1 AND r.date >= $2 AND r.status NOT IN ('cancelled','no_show','completed') ORDER BY r.date, r.time`,
+    [req.params.id, today]);
+  if (future.length && req.query.force !== '1') {
+    return res.status(409).json({
+      error: `La mesa tiene ${future.length} reserva${future.length === 1 ? '' : 's'} de hoy en adelante (la primera, ${future[0].date} a las ${future[0].time}). Muévelas a otra mesa antes de eliminarla.`,
+      futureReservations: future.length,
+    });
+  }
   await db.query('UPDATE tables SET active = 0 WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 });
@@ -1021,17 +1192,27 @@ app.get('/api/combinations', can('reservations'), requireRestaurant, async (req,
     const sumMax = tables.reduce((s, t) => s + t.capacity_max, 0);
     // capacity_min/capacity_max: aforo fijado a mano (como en Cover), que puede no
     // coincidir con la suma de las mesas — si no se fijó, se sigue calculando como suma.
-    return { ...c, tables, combinedMax: c.capacity_max != null ? c.capacity_max : sumMax };
+    // sumMax: suma de las mesas, para que la pantalla avise si el aforo fijado a mano se
+    // aleja mucho de ella (auditoría 17/10, H-01/H-02).
+    return { ...c, tables, sumMax, combinedMax: c.capacity_max != null ? c.capacity_max : sumMax };
   }));
 });
 
 app.post('/api/combinations', can('floorplans'), requireRestaurant, planOfRestaurant, async (req, res) => {
-  const { floorPlanId, name, tableIds, capacityMin, capacityMax } = req.body;
-  if (!floorPlanId || !name || !Array.isArray(tableIds) || tableIds.length < 2) {
-    return res.status(400).json({ error: 'floorPlanId, name y al menos 2 tableIds son obligatorios' });
+  const { floorPlanId, capacityMin, capacityMax } = req.body;
+  const name = cleanName(req.body.name, 120);
+  const tableIds = Array.isArray(req.body.tableIds) ? [...new Set(req.body.tableIds.map(Number))] : null;
+  if (!floorPlanId || !name || !tableIds || tableIds.length < 2 || tableIds.length > 80 || !tableIds.every(id => Number.isInteger(id) && id > 0)) {
+    return res.status(400).json({ error: 'La combinación necesita un nombre (máximo 120 caracteres) y al menos 2 mesas distintas.' });
+  }
+  if (capacityMax != null && capacityMax !== '') {
+    const capErr = capacityError(capacityMin, capacityMax, MAX_COMBO_CAPACITY, 'la combinación');
+    if (capErr) return res.status(400).json({ error: capErr });
+  } else if (capacityMin != null && capacityMin !== '' && !isInt(capacityMin, 0, MAX_COMBO_CAPACITY)) {
+    return res.status(400).json({ error: 'El aforo mínimo de la combinación no es válido.' });
   }
   const placeholders = tableIds.map((_, i) => `$${i + 2}`).join(',');
-  const { rows: validTables } = await db.query(`SELECT id FROM tables WHERE floor_plan_id = $1 AND id IN (${placeholders})`,
+  const { rows: validTables } = await db.query(`SELECT id FROM tables WHERE floor_plan_id = $1 AND active = 1 AND id IN (${placeholders})`,
     [floorPlanId, ...tableIds]);
   if (validTables.length !== tableIds.length) {
     return res.status(400).json({ error: 'Todas las mesas de la combinación deben pertenecer al mismo plano' });
@@ -1040,7 +1221,8 @@ app.post('/api/combinations', can('floorplans'), requireRestaurant, planOfRestau
   const id = await db.withTransaction(async (client) => {
     const { rows: inserted } = await client.query(
       'INSERT INTO table_combinations (restaurant_id, floor_plan_id, name, active, capacity_min, capacity_max) VALUES ($1,$2,$3,1,$4,$5) RETURNING id',
-      [req.restaurant.id, floorPlanId, name, capacityMin || null, capacityMax || null]
+      [req.restaurant.id, floorPlanId, name, capacityMin != null && capacityMin !== '' ? Number(capacityMin) : null,
+        capacityMax != null && capacityMax !== '' ? Number(capacityMax) : null]
     );
     const comboId = inserted[0].id;
     for (const tid of tableIds) {

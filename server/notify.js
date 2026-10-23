@@ -19,6 +19,8 @@
 
 const db = require('./db');
 const { sendEmail, formatFechaLarga } = require('./email');
+// Escapa texto de usuario antes de meterlo en el HTML del email (auditoría 17/10, H-09).
+const escHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const TEMPLATES = {
   reminder: process.env.WHATSAPP_TEMPLATE_REMINDER || 'saona_recordatorio_reserva',
@@ -81,7 +83,7 @@ function emailShell({ restaurant, title, intro, rows, buttonUrl, buttonText, out
   <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
     <div style="background:#152b4e;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px;">
       <div style="font-size:12px;letter-spacing:4px;font-weight:700;color:#7a99ac;margin-bottom:8px;">SAONA</div>
-      <div style="font-family:Georgia,serif;font-style:italic;font-size:22px;">${restaurant.name}</div>
+      <div style="font-family:Georgia,serif;font-style:italic;font-size:22px;">${escHtml(restaurant.name)}</div>
       <div style="font-size:13px;opacity:0.85;">${title}</div>
     </div>
     <div style="background:#fff;border-radius:0 0 12px 12px;padding:24px;border:1px solid #e1ded5;border-top:none;">
@@ -126,7 +128,7 @@ async function sendReminder({ restaurant, reservation, baseUrl }) {
       subject: `Recordatorio: tu reserva mañana en ${restaurant.name}`,
       html: emailShell({
         restaurant, title: 'Recordatorio de tu reserva',
-        intro: `Hola ${reservation.customer_name}, te esperamos mañana. ¿Nos confirmas que vienes?`,
+        intro: `Hola ${escHtml(reservation.customer_name)}, te esperamos mañana. ¿Nos confirmas que vienes?`,
         rows: [`📅 ${formatFechaLarga(reservation.date)}`, `🕐 ${reservation.time}h`, `👥 ${reservation.party_size} personas`],
         buttonUrl: url, buttonText: 'Confirmar o cancelar mi reserva',
         outro: 'Si no puedes venir, cancélala desde el enlace para que otra persona pueda disfrutar de la mesa.',
@@ -146,7 +148,7 @@ async function sendWaitlistOffer({ restaurant, entry, baseUrl, minutes }) {
       subject: `¡Se ha liberado una mesa en ${restaurant.name}!`,
       html: emailShell({
         restaurant, title: 'Lista de espera',
-        intro: `Hola ${entry.customer_name}, ¡se ha liberado una mesa para ti!`,
+        intro: `Hola ${escHtml(entry.customer_name)}, ¡se ha liberado una mesa para ti!`,
         rows: [`📅 ${formatFechaLarga(entry.date)}`, `🕐 ${entry.offer_time}h`, `👥 ${entry.party_size} personas`],
         buttonUrl: url, buttonText: 'Confirmar la mesa',
         outro: `Tienes ${minutes} minutos para confirmarla; después se ofrecerá a la siguiente persona de la lista.`,

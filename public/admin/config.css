@@ -82,3 +82,9 @@
 #apiCard .btn-link { background: none; border: none; color: var(--brand); cursor: pointer; font-size: 13px; padding: 0; text-decoration: none; }
 #apiCard .btn-link:hover { text-decoration: underline; }
 #apiCard code { font-size: 12px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+
+/* Aviso de aforo fijado a mano muy por encima de la suma de mesas (auditoría 17/10) */
+.combo-warn { display: inline-block; margin-left: 4px; padding: 1px 6px; border-radius: 6px; background: #fff4e5; color: #8a4b00; font-size: 0.85em; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .combo-warn { background: #3d2a10; color: #ffcf8f; } }
+#moveStatus { margin: 4px 0 8px; }
+#moveStatus button { margin-left: 6px; }

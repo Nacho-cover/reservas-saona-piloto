@@ -71,27 +71,27 @@ function renderClosureBar() {
   // Sin permiso de cierres (rol Sala) solo se informa, sin botones.
   if (!hasPerm('closures')) {
     bar.innerHTML = dayClosed
-      ? `<div class="closure-bar closed">🔒 Todo el día ${state.date} está cerrado a reservas nuevas.</div>`
+      ? `<div class="closure-bar closed">🔒 Todo el día ${escapeHtml(state.date)} está cerrado a reservas nuevas.</div>`
       : shiftClosure
-        ? `<div class="closure-bar closed">🔒 Turno de ${state.shift} cerrado a reservas nuevas.</div>`
-        : `<div class="closure-bar">Turno de ${state.shift} abierto a reservas.</div>`;
+        ? `<div class="closure-bar closed">🔒 Turno de ${escapeHtml(state.shift)} cerrado a reservas nuevas.</div>`
+        : `<div class="closure-bar">Turno de ${escapeHtml(state.shift)} abierto a reservas.</div>`;
     return;
   }
 
   if (dayClosed) {
-    bar.innerHTML = `<div class="closure-bar closed">🔒 Todo el día ${state.date} está cerrado a reservas nuevas.
+    bar.innerHTML = `<div class="closure-bar closed">🔒 Todo el día ${escapeHtml(state.date)} está cerrado a reservas nuevas.
       <button class="btn-reopen-shift" id="reopenDayBtn">Reabrir el día</button></div>`;
     $('reopenDayBtn').addEventListener('click', () => removeClosure(dayClosed.id));
     return;
   }
 
   if (shiftClosure) {
-    bar.innerHTML = `<div class="closure-bar closed">🔒 Turno de ${state.shift} cerrado a reservas nuevas.
-      <button class="btn-reopen-shift" id="reopenShiftBtn">Reabrir ${state.shift}</button></div>`;
+    bar.innerHTML = `<div class="closure-bar closed">🔒 Turno de ${escapeHtml(state.shift)} cerrado a reservas nuevas.
+      <button class="btn-reopen-shift" id="reopenShiftBtn">Reabrir ${escapeHtml(state.shift)}</button></div>`;
     $('reopenShiftBtn').addEventListener('click', () => removeClosure(shiftClosure.id));
   } else {
-    bar.innerHTML = `<div class="closure-bar">Turno de ${state.shift} abierto a reservas.
-      <button class="btn-close-shift" id="closeShiftBtn">Cerrar ${state.shift}</button></div>`;
+    bar.innerHTML = `<div class="closure-bar">Turno de ${escapeHtml(state.shift)} abierto a reservas.
+      <button class="btn-close-shift" id="closeShiftBtn">Cerrar ${escapeHtml(state.shift)}</button></div>`;
     $('closeShiftBtn').addEventListener('click', () => addClosure(state.shift));
   }
 }
@@ -188,7 +188,7 @@ function renderFloorPlanView() {
     if (busyTableNames.has(t.name)) zoneTotals[zone].busy++;
   });
   $('fpZoneStats').innerHTML = zoneOrder
-    .map(zone => `<div class="fp-zone-stat">${zone} <b>${zoneTotals[zone].busy}/${zoneTotals[zone].total}</b></div>`)
+    .map(zone => `<div class="fp-zone-stat">${escapeHtml(zone)} <b>${zoneTotals[zone].busy}/${zoneTotals[zone].total}</b></div>`)
     .join('');
 }
 
@@ -239,9 +239,9 @@ function renderRow(r) {
   const info = document.createElement('div');
   info.className = 'res-info';
   info.innerHTML = `
-    <div class="res-name">${r.phone ? `<button type="button" class="res-cust-link" title="Ver ficha del cliente">${escapeHtml(r.customer_name)}</button>` : escapeHtml(r.customer_name)} · ${r.party_size}p ${r.tables && r.tables.length ? `· Mesa ${r.tables.join(', ')}` : ''}</div>
+    <div class="res-name">${r.phone ? `<button type="button" class="res-cust-link" title="Ver ficha del cliente">${escapeHtml(r.customer_name)}</button>` : escapeHtml(r.customer_name)} · ${r.party_size}p ${r.tables && r.tables.length ? `· Mesa ${escapeHtml(r.tables.join(', '))}` : ''}</div>
     ${customerChips(r.customer)}${guaranteeChips(r)}${reminderChips(r)}
-    <div class="res-meta">${r.phone || ''} ${r.notes ? '· ' + escapeHtml(r.notes) : ''}</div>
+    <div class="res-meta">${escapeHtml(r.phone || '')} ${r.notes ? '· ' + escapeHtml(r.notes) : ''}</div>
   `;
   info.querySelector('.res-cust-link')?.addEventListener('click', () => openCustomerCard(r.phone, loadReservations));
 
@@ -297,9 +297,8 @@ function actionBtn(label, onClick, extraClass) {
 }
 
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  // Escapa también comillas: se usa dentro de atributos (title="…", data-…="…").
+  return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 async function updateStatus(id, status) {

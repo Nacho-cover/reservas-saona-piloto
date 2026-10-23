@@ -80,9 +80,8 @@ function renderWeekGrid() {
 }
 
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  // Escapa también comillas: se usa dentro de atributos (title="…", data-…="…").
+  return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function prefillForm(shift) {

@@ -4,6 +4,8 @@
 const crypto = require('crypto');
 const db = require('./db');
 const { sendEmail, formatFechaLarga } = require('./email');
+// Escapa texto de usuario antes de meterlo en el HTML del email (auditoría 17/10, H-09).
+const escHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 async function getTokenSecret() {
   const { rows } = await db.query("SELECT value FROM app_secrets WHERE key = 'survey_token_secret'");
@@ -30,11 +32,11 @@ function surveyEmailHtml({ restaurant, reservation, surveyUrl }) {
   <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
     <div style="background:#152b4e;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px;">
       <div style="font-size:12px;letter-spacing:4px;font-weight:700;color:#7a99ac;margin-bottom:8px;">SAONA</div>
-      <div style="font-family:Georgia,serif;font-style:italic;font-size:22px;">${restaurant.name}</div>
+      <div style="font-family:Georgia,serif;font-style:italic;font-size:22px;">${escHtml(restaurant.name)}</div>
       <div style="font-size:13px;opacity:0.85;">¿Qué tal tu visita?</div>
     </div>
     <div style="background:#fff;border-radius:0 0 12px 12px;padding:24px;border:1px solid #e1ded5;border-top:none;">
-      <p style="margin:0 0 16px;font-size:15px;color:#384049;">Hola ${reservation.customer_name},</p>
+      <p style="margin:0 0 16px;font-size:15px;color:#384049;">Hola ${escHtml(reservation.customer_name)},</p>
       <p style="margin:0 0 20px;font-size:15px;color:#384049;">
         Gracias por venir el ${fecha}. Nos encantaría saber qué tal lo pasaste — solo
         te llevará un minuto y nos ayuda muchísimo a mejorar.

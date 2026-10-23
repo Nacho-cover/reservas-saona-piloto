@@ -3,6 +3,8 @@
 // normal con fetch. Si no hay RESEND_API_KEY configurada, se avisa por consola
 // y se sigue sin romper la reserva — el email es un extra, nunca debe bloquear
 // que la reserva se guarde.
+// Escapa texto de usuario antes de meterlo en el HTML del email (auditoría 17/10, H-09).
+const escHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const EMAIL_FROM = process.env.EMAIL_FROM || 'Reservas Saona <onboarding@resend.dev>';
 
@@ -19,7 +21,7 @@ function guaranteeLine(reservation) {
   const fmt = (n) => n.toLocaleString('es-ES', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }) + ' €';
   const hours = reservation.guarantee_free_cancel_hours || 0;
   return `<div style="border:1px solid #e1ded5;border-radius:10px;padding:12px 14px;margin-bottom:20px;font-size:13px;color:#384049;">
-    💳 Reserva garantizada con tu tarjeta${reservation.card_last4 ? ' acabada en ' + reservation.card_last4 : ''}. No se ha cobrado nada.
+    💳 Reserva garantizada con tu tarjeta${reservation.card_last4 ? ' acabada en ' + escHtml(reservation.card_last4) : ''}. No se ha cobrado nada.
     Si no puedes venir, avísanos con al menos <strong>${hours} h</strong> de antelación; si no te presentas o cancelas más tarde,
     se cobrarán <strong>${fmt(perPerson)} por persona</strong> (${fmt(total)} en total).</div>`;
 }
@@ -27,29 +29,29 @@ function guaranteeLine(reservation) {
 function confirmationEmailHtml({ restaurant, reservation, zoneNames }) {
   const fecha = formatFechaLarga(reservation.date);
   const zonaLinea = zoneNames && zoneNames.length
-    ? `<p style="margin:0 0 4px;color:#65728A;font-size:14px;">📍 Zona: <strong>${zoneNames.join(', ')}</strong></p>`
+    ? `<p style="margin:0 0 4px;color:#65728A;font-size:14px;">📍 Zona: <strong>${escHtml(zoneNames.join(', '))}</strong></p>`
     : '';
   return `<!doctype html>
 <html lang="es"><body style="margin:0;padding:0;background:#f4f2ec;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
     <div style="background:#152b4e;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px;">
       <div style="font-size:12px;letter-spacing:4px;font-weight:700;color:#7a99ac;margin-bottom:8px;">SAONA</div>
-      <div style="font-family:Georgia,serif;font-style:italic;font-size:22px;">${restaurant.name}</div>
+      <div style="font-family:Georgia,serif;font-style:italic;font-size:22px;">${escHtml(restaurant.name)}</div>
       <div style="font-size:13px;opacity:0.85;">Reserva confirmada</div>
     </div>
     <div style="background:#fff;border-radius:0 0 12px 12px;padding:24px;border:1px solid #e1ded5;border-top:none;">
-      <p style="margin:0 0 16px;font-size:15px;color:#384049;">Hola ${reservation.customer_name},</p>
+      <p style="margin:0 0 16px;font-size:15px;color:#384049;">Hola ${escHtml(reservation.customer_name)},</p>
       <p style="margin:0 0 20px;font-size:15px;color:#384049;">Tu reserva está confirmada. Aquí tienes los detalles:</p>
       <div style="background:#f4f2ec;border-radius:10px;padding:16px 18px;margin-bottom:20px;">
         <p style="margin:0 0 4px;color:#65728A;font-size:14px;">📅 Fecha: <strong style="color:#152b4e;">${fecha}</strong></p>
-        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">🕐 Hora: <strong style="color:#152b4e;">${reservation.time}h</strong></p>
+        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">🕐 Hora: <strong style="color:#152b4e;">${escHtml(reservation.time)}h</strong></p>
         <p style="margin:0 0 4px;color:#65728A;font-size:14px;">👥 Comensales: <strong style="color:#152b4e;">${reservation.party_size}</strong></p>
         ${zonaLinea}
       </div>
       ${guaranteeLine(reservation)}
       <p style="margin:0 0 6px;font-size:13px;color:#65728A;">Si necesitas cambiar o cancelar tu reserva, llámanos:</p>
-      <p style="margin:0 0 20px;font-size:15px;color:#384049;font-weight:600;">${restaurant.phone || ''}</p>
-      <p style="margin:0;font-size:13px;color:#65728A;">${restaurant.address || ''}</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#384049;font-weight:600;">${escHtml(restaurant.phone || '')}</p>
+      <p style="margin:0;font-size:13px;color:#65728A;">${escHtml(restaurant.address || '')}</p>
     </div>
   </div>
 </body></html>`;

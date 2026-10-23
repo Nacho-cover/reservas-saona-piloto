@@ -191,14 +191,16 @@ async function getCombinationsForDate(restaurantId, dateStr, minutes = null) {
   const { rows: allMembers } = await db.query(`
     SELECT tcm.combination_id, t.* FROM table_combination_members tcm
     JOIN tables t ON t.id = tcm.table_id
-    WHERE tcm.combination_id IN (${placeholders}) AND t.active = 1
+    WHERE tcm.combination_id IN (${placeholders})
   `, comboIds);
   const membersByCombo = {};
   for (const m of allMembers) {
     (membersByCombo[m.combination_id] = membersByCombo[m.combination_id] || []).push(m);
   }
+  // Las mesas dadas de baja (p. ej. las de aforo 0 en Cover) no cuentan: la combinación
+  // se sigue ofreciendo con el resto de sus mesas, como hasta ahora.
   return combos
-    .map(c => ({ ...c, tables: membersByCombo[c.id] || [] }))
+    .map(c => ({ ...c, tables: (membersByCombo[c.id] || []).filter(t => t.active === 1) }))
     .filter(c => c.tables.length >= 2);
 }
 
@@ -240,11 +242,7 @@ async function findAvailableTable(restaurantId, dateStr, startMinutes, durationM
   // esquina que se añaden al juntarlas). Si no se fijó, se usa la suma de siempre.
   const combos = (await getCombinationsForDate(restaurantId, dateStr, startMinutes))
     .filter(c => c.tables.every(t => inZone(t)))
-    .map(c => ({
-      ...c,
-      combinedMin: c.capacity_min != null ? c.capacity_min : 1,
-      combinedMax: c.capacity_max != null ? c.capacity_max : c.tables.reduce((sum, t) => sum + t.capacity_max, 0),
-    }))
+    .map(c => ({ ...c, ...comboLimits(c) }))
     .sort((a, b) => a.combinedMax - b.combinedMax);
   for (const combo of combos) {
     if (partySize > combo.combinedMax || partySize < combo.combinedMin) continue;
@@ -394,9 +392,11 @@ async function getTableMap(restaurantId, dateStr, startMinutes, durationMinutes,
 
   const rawCombos = await getCombinationsForDate(restaurantId, dateStr, startMinutes);
   const combos = rawCombos.map(c => {
-    const combinedMax = c.tables.reduce((sum, t) => sum + t.capacity_max, 0);
+    const { combinedMin, combinedMax } = comboLimits(c);
     const allFree = c.tables.every(t => tableFree[t.id]);
-    const status = !allFree ? 'occupied' : (partySize > combinedMax ? 'toosmall' : 'available');
+    // Mismo aforo que la asignación automática y la validación al reservar; un grupo
+    // por debajo del mínimo de la combinación tampoco la puede elegir.
+    const status = !allFree ? 'occupied' : (partySize > combinedMax || partySize < combinedMin ? 'toosmall' : 'available');
     return {
       id: c.id, name: c.name, combinedMax, status,
       tableIds: c.tables.map(t => t.id),
@@ -460,10 +460,41 @@ async function validateChosenTables(restaurantId, dateStr, tableIds, startMinute
   }
 
   if (opts.ignoreCapacity) return rows;
+  if (rows.length === 1) {
+    if (partySize > rows[0].capacity_max || partySize < rows[0].capacity_min) return null;
+    return rows;
+  }
+  // Varias mesas: para el cliente de la web tienen que ser exactamente una combinación
+  // configurada de ese plano (auditoría 17/10: si no, alguien podría mandar a mano
+  // todas las mesas de la sala para 2 personas). Se aplica el aforo de la combinación
+  // igual que al asignar mesa automáticamente (aforo fijado a mano o, si no, la suma).
+  const combo = await findMatchingCombination(restaurantId, dateStr, startMinutes, rows.map(t => t.id));
+  if (opts.requireCombination && !combo) return null;
+  if (combo) {
+    const lim = comboLimits(combo);
+    if (partySize > lim.combinedMax || partySize < lim.combinedMin) return null;
+    return rows;
+  }
+  // Mesas juntadas a mano por el personal (sin combinación configurada): suma de las mesas.
   const combinedMax = rows.reduce((sum, t) => sum + t.capacity_max, 0);
   if (partySize > combinedMax) return null;
-  if (rows.length === 1 && partySize < rows[0].capacity_min) return null;
   return rows;
+}
+
+// Aforo de una combinación: el fijado a mano (como en Cover) o, si no, la suma de sus
+// mesas. Es la misma regla en la asignación automática, el plano y la validación.
+function comboLimits(c) {
+  return {
+    combinedMin: c.capacity_min != null ? c.capacity_min : 1,
+    combinedMax: c.capacity_max != null ? c.capacity_max : c.tables.reduce((sum, t) => sum + t.capacity_max, 0),
+  };
+}
+
+// Combinación configurada del plano de esa hora que tiene exactamente esas mesas.
+async function findMatchingCombination(restaurantId, dateStr, minutes, tableIds) {
+  const wanted = [...new Set(tableIds.map(Number))].sort((a, b) => a - b).join(',');
+  const combos = await getCombinationsForDate(restaurantId, dateStr, minutes);
+  return combos.find(c => c.tables.map(t => t.id).sort((a, b) => a - b).join(',') === wanted) || null;
 }
 
 module.exports = {

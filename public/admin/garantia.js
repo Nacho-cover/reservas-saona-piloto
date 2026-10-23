@@ -31,7 +31,7 @@ async function loadGuarantee() {
   const a = g.account;
   let info;
   if (a.configured) {
-    info = `Comercio <b>${a.merchantCode}</b>, terminal ${a.terminal} · ${a.env === 'live'
+    info = `Comercio <b>${escapeHtml(a.merchantCode)}</b>, terminal ${escapeHtml(a.terminal)} · ${a.env === 'live'
       ? '<span class="g-badge-live">Real: cobra dinero</span>' : '<span class="g-badge-test">Pruebas: no mueve dinero</span>'}`;
     if (!a.usable) info += '<br><span class="error">No se puede usar: falta la variable PAYMENTS_SECRET en Render para leer la clave.</span>';
   } else if (a.usingPublicTest) {

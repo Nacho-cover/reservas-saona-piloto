@@ -489,4 +489,54 @@ async function withTransaction(fn) {
   }
 }
 
-module.exports = { pool, initDb, withTransaction, query: (text, params) => pool.query(text, params) };
+// --- Bloqueo de reservas por local y día ---------------------------------------
+// Evita la doble reserva de una misma mesa cuando llegan dos peticiones a la vez
+// (auditoría 17/10, H-03): todo lo que comprueba si una mesa está libre y la reserva
+// se hace dentro de este bloqueo, de uno en uno por local y día.
+//  1) Un candado en memoria por local+día: las peticiones que esperan no ocupan
+//     conexiones de la base de datos mientras esperan.
+//  2) Dentro, una transacción con pg_advisory_xact_lock(local, día): protege también
+//     si algún día hay más de un servidor a la vez.
+//  3) Mientras dura, db.query() usa la conexión de esa transacción (AsyncLocalStorage),
+//     así que las comprobaciones de availability.js ven y bloquean lo mismo que se va
+//     a guardar, sin cambiar sus funciones.
+const { AsyncLocalStorage } = require('async_hooks');
+const txStore = new AsyncLocalStorage();
+const memLocks = new Map(); // clave -> promesa de la última petición en cola
+
+function dayKey(dateStr) {
+  const n = Number(String(dateStr || '').replace(/-/g, '').slice(0, 8));
+  return Number.isInteger(n) ? n : 0;
+}
+
+async function withBookingLock(restaurantId, dateStr, fn) {
+  const key = `${restaurantId}|${dateStr}`;
+  const prev = memLocks.get(key) || Promise.resolve();
+  let release;
+  const mine = new Promise(r => { release = r; });
+  const chained = prev.then(() => mine);
+  memLocks.set(key, chained);
+  await prev;
+  try {
+    return await withTransaction(async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [Number(restaurantId) || 0, dayKey(dateStr)]);
+      const store = { client, active: true };
+      try {
+        return await txStore.run(store, () => fn(client));
+      } finally {
+        store.active = false; // lo que quede suelto después usa el pool normal
+      }
+    });
+  } finally {
+    release();
+    if (memLocks.get(key) === chained) memLocks.delete(key);
+  }
+}
+
+function query(text, params) {
+  const store = txStore.getStore();
+  if (store && store.active) return store.client.query(text, params);
+  return pool.query(text, params);
+}
+
+module.exports = { pool, initDb, withTransaction, withBookingLock, query };
