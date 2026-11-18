@@ -96,7 +96,7 @@
       <div class="confirm-box" id="offerBox"></div>
       <p class="offer-timer" id="offerTimer"></p>
       <div class="guarantee-box hidden" id="offerGuarantee">
-        <div class="guarantee-title">💳 Reserva con tarjeta de garantía</div>
+        <div class="guarantee-title" id="offerGuaranteeTitle">💳 Reserva con tarjeta de garantía</div>
         <p id="offerGuaranteeText"></p>
         <label class="consent-field"><input type="checkbox" id="offerPolicy"><span>Acepto la política de cancelación de esta reserva.</span></label>
       </div>
@@ -104,6 +104,21 @@
       <button class="btn-link center-link" id="offerLeaveBtn">No me interesa, quitarme de la lista</button>
       <p class="error" id="offerError"></p>
       <form id="redsysForm2" method="POST" class="hidden"></form>
+    </section>
+
+    <!-- Pagar la reserva (link de pago que envía el restaurante): /?pagar=ID&k=CLAVE -->
+    <section id="step-pay" class="card step hidden">
+      <div class="confirm-icon">💰</div>
+      <h2 class="center">Pago anticipado de tu reserva</h2>
+      <div class="confirm-box" id="payBox"></div>
+      <div class="guarantee-box">
+        <div class="guarantee-title">Condiciones de devolución</div>
+        <p id="payPolicyText"></p>
+        <label class="consent-field"><input type="checkbox" id="payPolicy"><span>Acepto las condiciones de devolución de este pago.</span></label>
+      </div>
+      <button class="btn btn-primary" id="payBtn">Pagar</button>
+      <p class="error" id="payError"></p>
+      <form id="redsysForm3" method="POST" class="hidden"></form>
     </section>
 
     <!-- Gestionar la reserva (enlace del recordatorio) -->
@@ -153,7 +168,7 @@
       </label>
       <!-- Garantía con tarjeta (solo locales que la tienen activada) -->
       <div class="guarantee-box hidden" id="guaranteeBox">
-        <div class="guarantee-title">💳 Reserva con tarjeta de garantía</div>
+        <div class="guarantee-title" id="guaranteeTitle">💳 Reserva con tarjeta de garantía</div>
         <p id="guaranteeText"></p>
         <label class="consent-field">
           <input type="checkbox" id="policyInput">

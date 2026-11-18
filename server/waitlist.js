@@ -188,7 +188,8 @@ function makeRouter() {
   // Oferta de mesa (enlace del aviso).
   router.get('/api/public/waitlist/:id', async (req, res) => {
     const { rows } = await db.query(`SELECT w.*, r.name AS restaurant_name, r.phone AS restaurant_phone,
-        r.guarantee_enabled, r.guarantee_fee_cents, r.guarantee_free_cancel_hours
+        r.guarantee_enabled, r.guarantee_fee_cents, r.guarantee_free_cancel_hours,
+        r.prepay_web_enabled, r.prepay_fee_cents, r.prepay_min_party, r.prepay_refund_hours
       FROM waitlist w JOIN restaurants r ON r.id = w.restaurant_id WHERE w.id = $1 AND w.access_key = $2`, [Number(req.params.id) || 0, String(req.query.k || '')]);
     const w = rows[0];
     if (!w) return res.status(404).json({ error: 'Este enlace no es válido.' });
@@ -200,7 +201,9 @@ function makeRouter() {
       id: w.id, status: w.status, date: w.date, time: w.time, offerTime: w.offer_time, partySize: w.party_size,
       customerName: w.customer_name, phone: w.phone, email: w.email, offerExpiresAt: w.offer_expires_at,
       restaurant: { id: w.restaurant_id, name: w.restaurant_name, phone: w.restaurant_phone, guarantee_enabled: w.guarantee_enabled,
-        guarantee_fee_cents: w.guarantee_fee_cents, guarantee_free_cancel_hours: w.guarantee_free_cancel_hours },
+        guarantee_fee_cents: w.guarantee_fee_cents, guarantee_free_cancel_hours: w.guarantee_free_cancel_hours,
+        prepay_web_enabled: w.prepay_web_enabled, prepay_fee_cents: w.prepay_fee_cents, prepay_min_party: w.prepay_min_party,
+        prepay_refund_hours: w.prepay_refund_hours },
       nowMadrid: madridNow().stamp,
     });
   });
@@ -232,6 +235,10 @@ function makeRouter() {
       canChange: ['confirmed'].includes(r.status) && start > now.slice(0, 16),
       lateCancelPenaltyCents: lateCancel ? (r.guarantee_fee_cents || 0) * r.party_size : 0,
       freeCancelHours: r.guarantee_free_cancel_hours,
+      // Pago anticipado: si cancela con menos antelación que la de devolución, no se devuelve.
+      prepayPaidCents: r.prepay_status === 'paid' ? r.prepay_amount_cents : 0,
+      prepayRefundHours: r.prepay_refund_hours,
+      prepayLostOnCancel: r.prepay_status === 'paid' && hoursLeft < (r.prepay_refund_hours || 0),
     };
   }
   router.get('/api/public/manage/:id', async (req, res) => {

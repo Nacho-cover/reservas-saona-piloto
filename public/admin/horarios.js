@@ -316,6 +316,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderSessionBar($('sessionBar'));
   renderRestaurantBar($('restaurantBar'));
   if (typeof initGuarantee === 'function') initGuarantee();
+  if (typeof initPrepay === 'function') initPrepay();
 
   populateHourSelect($('shiftStart'));
   populateHourSelect($('shiftEnd'));

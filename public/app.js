@@ -213,14 +213,43 @@ function eurosTxt(cents) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }) + ' €';
 }
 
+// ¿Esta reserva (con este número de comensales) pide pago anticipado en la web? Lo decide el
+// local: pago web activado y grupo con el mínimo de comensales. Sustituye a la tarjeta de garantía.
+function prepayApplies(r, party) {
+  return !!(r && r.prepay_web_enabled && Number(party) >= Number(r.prepay_min_party || 1));
+}
+// ¿Hace falta pasar por la pasarela (pago o tarjeta) para esta reserva?
+function needsGateway(r, party) {
+  return !!(r && (r.guarantee_enabled || prepayApplies(r, party)));
+}
+function confirmBtnLabel() {
+  const r = state.restaurant || {};
+  if (prepayApplies(r, state.partySize)) return `Continuar y pagar ${eurosTxt((r.prepay_fee_cents || 0) * (state.partySize || 1))}`;
+  return r.guarantee_enabled ? 'Continuar y dejar tarjeta' : 'Confirmar reserva';
+}
+function prepayPolicyText(r, party) {
+  const per = r.prepay_fee_cents || 0;
+  const h = r.prepay_refund_hours || 0;
+  return `Para confirmar la reserva tienes que pagar por adelantado <b>${eurosTxt(per)} por persona</b> (<b>${eurosTxt(per * party)}</b> en total) en la pasarela segura de nuestro banco.
+    Si cancelas con al menos <b>${h} h</b> de antelación, o si cancelamos nosotros, te devolvemos el pago. Si cancelas más tarde o no te presentas, no se devuelve.`;
+}
+
 // Locales con garantía activada: se explica la política y se pide aceptarla antes de ir
-// a la pasarela de Redsys (no se cobra nada al reservar).
+// a la pasarela de Redsys (no se cobra nada al reservar). Con pago anticipado (grupos), se
+// explica el pago y las condiciones de devolución.
 function renderGuarantee() {
   const r = state.restaurant || {};
-  const on = !!r.guarantee_enabled;
+  const prepay = prepayApplies(r, state.partySize);
+  const on = !!r.guarantee_enabled || prepay;
   $('guaranteeBox').classList.toggle('hidden', !on);
-  $('confirmBtn').textContent = on ? 'Continuar y dejar tarjeta' : 'Confirmar reserva';
+  $('confirmBtn').textContent = confirmBtnLabel();
   if (!on) return;
+  if (prepay) {
+    $('guaranteeTitle').textContent = '💰 Reserva con pago anticipado';
+    $('guaranteeText').innerHTML = prepayPolicyText(r, state.partySize || 1);
+    return;
+  }
+  $('guaranteeTitle').textContent = '💳 Reserva con tarjeta de garantía';
   const per = r.guarantee_fee_cents || 0;
   const total = per * (state.partySize || 1);
   const h = r.guarantee_free_cancel_hours || 0;
@@ -255,7 +284,7 @@ async function confirmReservation() {
   if (!customerName) { $('formError').textContent = 'Indica tu nombre.'; return; }
   if (!phone) { $('formError').textContent = 'Indica un teléfono de contacto.'; return; }
   if (!consentAccepted) { $('formError').textContent = 'Debes aceptar el tratamiento de datos para reservar.'; return; }
-  const needsCard = !!(state.restaurant && state.restaurant.guarantee_enabled);
+  const needsCard = needsGateway(state.restaurant, state.partySize);
   if (needsCard && !$('policyInput').checked) { $('formError').textContent = 'Debes aceptar la política de cancelación para reservar.'; return; }
 
   const btn = $('confirmBtn');
@@ -304,7 +333,7 @@ async function confirmReservation() {
   } finally {
     if (!state.redirecting) {
       btn.disabled = false;
-      btn.textContent = state.restaurant && state.restaurant.guarantee_enabled ? 'Continuar y dejar tarjeta' : 'Confirmar reserva';
+      btn.textContent = confirmBtnLabel();
     }
   }
 }
@@ -314,6 +343,8 @@ function goToRedsys({ url, fields }, formId = 'redsysForm') {
   if (formId === 'redsysForm') {
     $('confirmBtn').textContent = 'Abriendo la pasarela segura…';
     $('formError').innerHTML = '<span class="redirect-note">Te llevamos a la pasarela de pago del banco. Tienes 20 minutos para completarla; después la mesa se libera.</span>';
+  } else if (formId === 'redsysForm3') {
+    $('payBtn').textContent = 'Abriendo la pasarela segura…';
   } else {
     $('offerAcceptBtn').textContent = 'Abriendo la pasarela segura…';
   }
@@ -331,8 +362,10 @@ function goToRedsys({ url, fields }, formId = 'redsysForm') {
 function showConfirmation(d) {
   const dateFmt = new Date(d.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
   const zoneLine = (d.zoneNames && d.zoneNames.length) ? `<br><span class="recap-zone">📍 ${esc(d.zoneNames.join(', '))}</span>` : '';
-  const card = d.guarantee_status === 'ok'
-    ? `<br>💳 Garantizada con tu tarjeta${d.card_last4 ? ' ···' + esc(d.card_last4) : ''} (no se ha cobrado nada)` : '';
+  const card = d.prepay_status === 'paid'
+    ? `<br>💰 Pago anticipado de ${eurosTxt(d.prepay_amount_cents)} recibido`
+    : (d.guarantee_status === 'ok'
+      ? `<br>💳 Garantizada con tu tarjeta${d.card_last4 ? ' ···' + esc(d.card_last4) : ''} (no se ha cobrado nada)` : '');
   $('confirmBox').innerHTML = `
     <strong>${esc(d.restaurant_name || (state.restaurant && state.restaurant.name) || '')}</strong><br>
     ${dateFmt} · ${esc(d.time)}h<br>
@@ -349,17 +382,74 @@ async function handleRedsysReturn() {
   if (!q.get('reserva') || !q.get('k')) return false;
   const id = q.get('reserva'); const k = q.get('k'); const pago = q.get('pago');
   history.replaceState(null, '', location.pathname + (q.get('restaurantId') ? '?restaurantId=' + q.get('restaurantId') : ''));
+  let waitingPayment = false;
   for (let i = 0; i < 8; i++) {
     const res = await fetch(`/api/public/reservations/${encodeURIComponent(id)}?k=${encodeURIComponent(k)}`);
-    if (res.ok) {
-      const d = await res.json();
-      if (d.status !== 'pending_card') { showConfirmation(d); return true; }
+    if (!res.ok) break;
+    const d = await res.json();
+    if (d.prepay_status === 'pending') {
+      // Pago anticipado aún sin confirmar por el banco: se espera la notificación.
+      waitingPayment = true;
       if (pago === 'ko') break;
-    } else break;
+    } else if (d.status !== 'pending_card') { showConfirmation(d); return true; }
+    else if (pago === 'ko') break;
     await new Promise(r => setTimeout(r, 1500)); // la notificación del banco puede tardar unos segundos
+  }
+  if (waitingPayment && pago === 'ok') {
+    showMessage('Estamos confirmando tu pago', 'El banco todavía no nos ha confirmado el pago. No vuelvas a pagar: recibirás la confirmación en unos minutos. Si no llega, llama al restaurante.', '⌛');
+    return true;
+  }
+  if (waitingPayment) {
+    // Pago no completado. Si la reserva sigue en pie (link del restaurante), se puede reintentar.
+    state.payLink = { id, k };
+    document.querySelector('#step-card-failed h2').textContent = 'No se ha completado el pago';
+    $('cardFailedText').textContent = 'No se ha cobrado nada. Puedes volver a intentarlo o llamarnos.';
   }
   showStep('step-card-failed');
   return true;
+}
+
+// --- Link de pago (enlace /p/... que envía el restaurante): /?pagar=ID&k=CLAVE ------------
+async function handlePayLink() {
+  const q = new URLSearchParams(location.search);
+  if (!q.get('pagar') || !q.get('k')) return false;
+  const id = q.get('pagar'); const k = q.get('k');
+  history.replaceState(null, '', location.pathname + (q.get('restaurantId') ? '?restaurantId=' + q.get('restaurantId') : ''));
+  await showPayPage(id, k);
+  return true;
+}
+async function showPayPage(id, k) {
+  const res = await fetch(`/api/public/prepay/${encodeURIComponent(id)}?k=${encodeURIComponent(k)}`);
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) { showMessage('Enlace no válido', d.error || 'Este enlace de pago no es válido.', '!'); return; }
+  if (d.prepay_status === 'paid') { showMessage('Reserva ya pagada', 'El pago de esta reserva ya está recibido. ¡Te esperamos!', '✓'); return; }
+  if (!d.payable) {
+    showMessage('Enlace de pago no activo', `Este enlace ya no está activo. Llama al restaurante${d.restaurant_phone ? ' al ' + d.restaurant_phone : ''}.`, '!');
+    return;
+  }
+  const dateFmt = new Date(d.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('payBox').innerHTML = `<strong>${esc(d.restaurant_name)}</strong><br>${dateFmt} · ${esc(d.time)}h<br>${Number(d.party_size)} ${d.party_size === 1 ? 'persona' : 'personas'}<br>A nombre de: ${esc(d.customer_name)}<br><b>Importe: ${eurosTxt(d.prepay_amount_cents)}</b>`;
+  $('payPolicyText').innerHTML = `Si cancelas con al menos <b>${Number(d.prepay_refund_hours)} h</b> de antelación, o si cancelamos nosotros, te devolvemos el pago. Si cancelas más tarde o no te presentas, no se devuelve.`;
+  $('payPolicy').checked = false;
+  $('payError').textContent = '';
+  state.payLabel = `Pagar ${eurosTxt(d.prepay_amount_cents)}`;
+  $('payBtn').textContent = state.payLabel;
+  $('payBtn').disabled = false;
+  $('payBtn').onclick = async () => {
+    $('payError').textContent = '';
+    if (!$('payPolicy').checked) { $('payError').textContent = 'Debes aceptar las condiciones de devolución.'; return; }
+    $('payBtn').disabled = true;
+    try {
+      const r = await fetch(`/api/public/prepay/${encodeURIComponent(id)}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ k }) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'No se pudo iniciar el pago');
+      goToRedsys(data.redsys, 'redsysForm3');
+    } catch (err) {
+      $('payError').textContent = err.message;
+      $('payBtn').disabled = false;
+    }
+  };
+  showStep('step-pay');
 }
 
 // --- Lista de espera ---------------------------------------------------------------
@@ -430,9 +520,15 @@ async function handleWaitlistOffer() {
   state.partySize = w.partySize;
   const dateFmt = new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
   $('offerBox').innerHTML = `<strong>${esc(w.restaurant.name)}</strong><br>${dateFmt} · ${esc(w.offerTime)}h<br>${Number(w.partySize)} ${w.partySize === 1 ? 'persona' : 'personas'}<br>A nombre de: ${esc(w.customerName)}`;
-  const g = w.restaurant.guarantee_enabled;
+  const prepay = prepayApplies(w.restaurant, w.partySize);
+  const g = w.restaurant.guarantee_enabled || prepay;
   $('offerGuarantee').classList.toggle('hidden', !g);
-  if (g) {
+  if (prepay) {
+    $('offerGuaranteeTitle').textContent = '💰 Reserva con pago anticipado';
+    $('offerGuaranteeText').innerHTML = prepayPolicyText(w.restaurant, w.partySize);
+    $('offerAcceptBtn').textContent = `Confirmar y pagar ${eurosTxt((w.restaurant.prepay_fee_cents || 0) * w.partySize)}`;
+  } else if (g) {
+    $('offerGuaranteeTitle').textContent = '💳 Reserva con tarjeta de garantía';
     const per = w.restaurant.guarantee_fee_cents || 0;
     $('offerGuaranteeText').innerHTML = `Para confirmar te pediremos una tarjeta en la pasarela segura del banco. <b>No se cobra nada ahora.</b> Si no vienes o cancelas con menos de <b>${w.restaurant.guarantee_free_cancel_hours} h</b>, se cobrarán <b>${eurosTxt(per)} por persona</b> (${eurosTxt(per * w.partySize)} en total).`;
     $('offerAcceptBtn').textContent = 'Confirmar y dejar tarjeta';
@@ -496,7 +592,8 @@ async function handleManage() {
     $('manageActions').classList.toggle('hidden', !d.canChange);
     $('manageConfirmBtn').classList.toggle('hidden', !!d.customer_confirmed_at);
     $('manageNote').textContent = d.canChange
-      ? (d.lateCancelPenaltyCents ? `Atención: quedan menos de ${d.freeCancelHours} h para la reserva; si cancelas ahora se podrá cobrar la penalización de ${eurosTxt(d.lateCancelPenaltyCents)}.` : 'Si no puedes venir, cancela para que otra persona pueda disfrutar de la mesa.')
+      ? (d.prepayLostOnCancel ? `Atención: quedan menos de ${d.prepayRefundHours} h para la reserva; si cancelas ahora no se te devolverá el pago anticipado de ${eurosTxt(d.prepayPaidCents)}.`
+        : d.lateCancelPenaltyCents ? `Atención: quedan menos de ${d.freeCancelHours} h para la reserva; si cancelas ahora se podrá cobrar la penalización de ${eurosTxt(d.lateCancelPenaltyCents)}.` : 'Si no puedes venir, cancela para que otra persona pueda disfrutar de la mesa.')
       : (d.status === 'cancelled' ? '' : `Para cualquier cambio, llámanos${d.restaurant_phone ? ' al ' + d.restaurant_phone : ''}.`);
   };
   render(await res.json());
@@ -536,7 +633,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('backToSlots').addEventListener('click', () => showStep('step-slots'));
   $('confirmBtn').addEventListener('click', confirmReservation);
   $('newReservationBtn').addEventListener('click', resetFlow);
-  $('retryAfterCardBtn').addEventListener('click', resetFlow);
+  $('retryAfterCardBtn').addEventListener('click', () => { if (state.payLink) { const p = state.payLink; state.payLink = null; showPayPage(p.id, p.k); } else resetFlow(); });
   $('openWaitlistBtn').addEventListener('click', () => openWaitlist(null));
   $('backToSlotsFromWl').addEventListener('click', () => showStep('step-slots'));
   $('wlSubmitBtn').addEventListener('click', submitWaitlist);
@@ -548,6 +645,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
   await handleWaitlistOffer();
   await handleManage();
+  await handlePayLink();
   $('partySizeInput').addEventListener('change', () => { if (!$('step-form').classList.contains('hidden')) renderGuarantee(); });
   await handleRedsysReturn();
   // Si el cliente vuelve atrás desde la pasarela, el botón se reactiva (la mesa sigue
@@ -558,6 +656,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     $('confirmBtn').disabled = false;
     renderGuarantee();
     $('formError').textContent = '';
+    if (state.payLabel && $('payBtn').textContent.startsWith('Abriendo')) { $('payBtn').textContent = state.payLabel; $('payBtn').disabled = false; }
   });
 
   if ('serviceWorker' in navigator) {

@@ -46,6 +46,7 @@ const STATUS_LABELS = Object.fromEntries(Object.entries(STATUS_FLOW).map(([k, v]
 async function loadRestaurant() {
   const res = await fetch(`/api/restaurants/${RESTAURANT_ID}`);
   const data = await res.json();
+  state.restaurant = data;
   $('restaurantName').textContent = data.name;
 }
 
@@ -240,7 +241,7 @@ function renderRow(r) {
   info.className = 'res-info';
   info.innerHTML = `
     <div class="res-name">${r.phone ? `<button type="button" class="res-cust-link" title="Ver ficha del cliente">${escapeHtml(r.customer_name)}</button>` : escapeHtml(r.customer_name)} · ${r.party_size}p ${r.tables && r.tables.length ? `· Mesa ${escapeHtml(r.tables.join(', '))}` : ''}</div>
-    ${customerChips(r.customer)}${guaranteeChips(r)}${reminderChips(r)}
+    ${customerChips(r.customer)}${guaranteeChips(r)}${prepayChips(r)}${reminderChips(r)}
     <div class="res-meta">${escapeHtml(r.phone || '')} ${r.notes ? '· ' + escapeHtml(r.notes) : ''}</div>
   `;
   info.querySelector('.res-cust-link')?.addEventListener('click', () => openCustomerCard(r.phone, loadReservations));
@@ -265,7 +266,9 @@ function renderRow(r) {
   if (r.status === 'pending_card') {
     const note = document.createElement('span');
     note.className = 'res-pending-note';
-    note.textContent = 'El cliente está dejando la tarjeta en la pasarela. Si no termina en 20 min, la reserva se borra sola.';
+    note.textContent = r.prepay_status === 'pending'
+      ? 'El cliente está pagando en la pasarela. Si no termina en 20 min, la reserva se borra sola.'
+      : 'El cliente está dejando la tarjeta en la pasarela. Si no termina en 20 min, la reserva se borra sola.';
     actions.appendChild(note);
   } else if (r.status !== 'cancelled' && r.status !== 'completed' && r.status !== 'no_show') {
     if (flow.next && flow.next !== 'completed') {
@@ -279,6 +282,15 @@ function renderRow(r) {
   }
   if (r.penalty_eligible && hasPerm('penalties')) {
     actions.appendChild(actionBtn(`Cobrar penalización (${eurosTxt(penaltyAmount(r))})`, () => chargePenalty(r), 'btn-charge'));
+  }
+  // Pago anticipado: link de pago (reservas confirmadas aún sin pagar) y devolución (pagadas y canceladas).
+  const pp = state.restaurant || {};
+  if (pp.prepay_enabled && r.status === 'confirmed' && r.prepay_status !== 'paid' && r.date >= todayISO()) {
+    const label = r.prepay_status === 'pending' ? 'Copiar link de pago' : `Crear link de pago (${eurosTxt((pp.prepay_fee_cents || 0) * r.party_size)})`;
+    actions.appendChild(actionBtn(label, () => createPayLink(r), 'btn-charge'));
+  }
+  if (r.refund_eligible && hasPerm('penalties')) {
+    actions.appendChild(actionBtn(`Devolver pago (${eurosTxt(r.prepay_amount_cents)})`, () => refundPrepay(r), 'btn-charge'));
   }
 
   row.appendChild(time);
@@ -341,6 +353,48 @@ async function chargePenalty(r) {
   else alert(data.error || 'No se pudo cobrar la penalización.');
 }
 
+// --- Pago anticipado (Redsys) --------------------------------------------------------
+function prepayChips(r) {
+  const chips = [];
+  if (r.prepay_status === 'paid') {
+    if (r.prepay_refund_status === 'refunded') chips.push(`<span class="cchip cchip-charged">Pago devuelto ${eurosTxt(r.prepay_amount_cents)}</span>`);
+    else if (r.status === 'cancelled' && !r.refund_eligible) chips.push(`<span class="cchip cchip-failed" title="Se canceló con menos de ${r.prepay_refund_hours} h de antelación: no se devuelve">Pagado ${eurosTxt(r.prepay_amount_cents)} · no reembolsable</span>`);
+    else chips.push(`<span class="cchip cchip-charged" title="Pago anticipado recibido. Se devuelve si cancela con al menos ${r.prepay_refund_hours} h de antelación">💰 Pagado ${eurosTxt(r.prepay_amount_cents)}</span>`);
+    if (r.prepay_refund_status === 'failed') chips.push(`<span class="cchip cchip-failed" title="${escapeHtml(r.prepay_refund_message || '')}">Devolución rechazada</span>`);
+  } else if (r.prepay_status === 'pending' && r.status === 'confirmed') {
+    chips.push(`<span class="cchip cchip-failed" title="Se ha creado el link de pago pero el cliente aún no ha pagado">⏳ Pago pendiente ${eurosTxt(r.prepay_amount_cents)}</span>`);
+  }
+  return chips.length ? `<span class="cchips">${chips.join('')}</span>` : '';
+}
+async function createPayLink(r) {
+  const res = await fetch(`/api/reservations/${r.id}/prepay-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || 'No se pudo crear el link de pago.'); return; }
+  await loadReservations();
+  try {
+    await navigator.clipboard.writeText(data.url);
+    toast(`Link de pago de ${eurosTxt(data.amountCents)} copiado. Pégalo en un WhatsApp o email al cliente.`);
+  } catch {
+    // Si el navegador no deja copiar solo, se enseña el link para copiarlo a mano.
+    prompt(`Link de pago de ${eurosTxt(data.amountCents)}. Cópialo (Ctrl+C) y envíaselo al cliente:`, data.url);
+  }
+}
+async function refundPrepay(r) {
+  const why = r.cancelled_by === 'restaurant' ? 'La cancela el restaurante' : `Canceló con al menos ${r.prepay_refund_hours} h de antelación`;
+  if (!confirm(`${r.customer_name}: ${why}.\n\n¿Devolver ahora ${eurosTxt(r.prepay_amount_cents)} a su tarjeta?\n\nLa devolución es real y no se puede deshacer desde aquí.`)) return;
+  const res = await fetch(`/api/reservations/${r.id}/refund-prepay`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const data = await res.json().catch(() => ({}));
+  await loadReservations();
+  if (res.ok) toast(`Pago de ${eurosTxt(data.amountCents)} devuelto${data.testMode ? ' (entorno de pruebas: no se mueve dinero)' : ''}.`);
+  else alert(data.error || 'No se pudo devolver el pago.');
+}
+// Tras cancelar una reserva pagada, si se puede devolver, se ofrece.
+async function offerRefund(id) {
+  const r = state.reservations.find(x => x.id === id);
+  if (!r || !r.refund_eligible || !hasPerm('penalties')) return;
+  await refundPrepay(r);
+}
+
 async function cancelReservation(id, cancelledBy) {
   const who = cancelledBy === 'restaurant' ? 'el restaurante' : 'el cliente';
   if (!confirm(`¿Cancelar esta reserva? (cancela ${who})`)) return false;
@@ -351,6 +405,7 @@ async function cancelReservation(id, cancelledBy) {
   });
   await loadReservations();
   if (cancelledBy === 'customer') await offerPenalty(id);
+  await offerRefund(id);
   return true;
 }
 
@@ -944,7 +999,7 @@ function xlsxOk() {
 function downloadDayXlsx() {
   if (!xlsxOk()) return;
   const columns = ['Fecha', 'Hora', 'Turno', 'Cliente', 'Comensales', 'Mesa', 'Estado', 'Cancelada por', 'Canal', 'Teléfono', 'Email', 'Notas',
-    'Etiquetas', 'Alergias', 'No-shows (grupo)', 'Visitas (grupo)', 'Tarjeta de garantía', 'Penalización'];
+    'Etiquetas', 'Alergias', 'No-shows (grupo)', 'Visitas (grupo)', 'Tarjeta de garantía', 'Penalización', 'Pago anticipado'];
   const rows = [...state.reservations]
     .sort((a, b) => a.time.localeCompare(b.time))
     .map(r => [r.date, r.time, shiftLabel(r.time), r.customer_name, r.party_size, (r.tables || []).join('+'),
@@ -955,7 +1010,9 @@ function downloadDayXlsx() {
       r.customer ? (r.customer.allergies || []).join(', ') : '',
       r.customer ? r.customer.noShows : '', r.customer ? r.customer.visits : '',
       r.guarantee_status === 'ok' ? `Sí${r.card_last4 ? ' ···' + r.card_last4 : ''}` : '',
-      r.penalty_status === 'charged' ? `Cobrada ${eurosTxt(r.penalty_amount_cents)}` : (r.penalty_status === 'failed' ? 'Rechazada' : '')]);
+      r.penalty_status === 'charged' ? `Cobrada ${eurosTxt(r.penalty_amount_cents)}` : (r.penalty_status === 'failed' ? 'Rechazada' : ''),
+      r.prepay_status === 'paid' ? (r.prepay_refund_status === 'refunded' ? `Devuelto ${eurosTxt(r.prepay_amount_cents)}` : `Pagado ${eurosTxt(r.prepay_amount_cents)}`)
+        : (r.prepay_status === 'pending' ? `Pendiente ${eurosTxt(r.prepay_amount_cents)}` : '')]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, xlsxSheet(columns, rows), 'Reservas');
   XLSX.writeFile(wb, `reservas-${restaurantSlug()}-${state.date}.xlsx`, { compression: true });

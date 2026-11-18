@@ -206,7 +206,74 @@ async function chargeNoShow({ account, order, amountCents, token, cofTxnid, desc
     error: ok ? null : `Cobro denegado por el banco (código ${p.Ds_Response}).` };
 }
 
+// --- 4. Pago anticipado (Redirección, cobro inmediato) -------------------------------
+// Operación normal de autorización (tipo 0) por el importe de la reserva. El cliente
+// paga en la pasarela del banco; Redsys avisa al servidor (MERCHANTURL) y lo devuelve a
+// URLOK / URLKO. No se guarda ninguna tarjeta.
+function paymentForm({ account, order, amountCents, reservation, restaurant, baseUrl, publicKey }) {
+  const q = `r=${reservation.id}&k=${publicKey}`;
+  const params = {
+    DS_MERCHANT_AMOUNT: String(amountCents),
+    DS_MERCHANT_ORDER: order,
+    DS_MERCHANT_MERCHANTCODE: account.merchantCode,
+    DS_MERCHANT_CURRENCY: '978',
+    DS_MERCHANT_TRANSACTIONTYPE: '0',
+    DS_MERCHANT_TERMINAL: account.terminal,
+    DS_MERCHANT_MERCHANTURL: `${baseUrl}/api/redsys/prepay-notify`,
+    DS_MERCHANT_URLOK: `${baseUrl}/api/redsys/prepay-return?res=ok&${q}`,
+    DS_MERCHANT_URLKO: `${baseUrl}/api/redsys/prepay-return?res=ko&${q}`,
+    DS_MERCHANT_PRODUCTDESCRIPTION: `Pago anticipado reserva ${reservation.date} ${reservation.time}`.slice(0, 125),
+    DS_MERCHANT_MERCHANTNAME: String(restaurant.name || 'Saona').slice(0, 25),
+    DS_MERCHANT_TITULAR: String(reservation.customer_name || '').slice(0, 60),
+    DS_MERCHANT_CONSUMERLANGUAGE: '001',
+  };
+  const merchantParams = b64encodeJson(params);
+  return {
+    url: URLS[account.env].redirect,
+    fields: {
+      Ds_SignatureVersion: 'HMAC_SHA256_V1',
+      Ds_MerchantParameters: merchantParams,
+      Ds_Signature: sign(account.secret, order, merchantParams),
+    },
+  };
+}
+
+// --- 5. Devolución del pago anticipado (REST) -------------------------------------
+// Operación de devolución (tipo 3) sobre el MISMO número de pedido del pago original y
+// por su importe. Solo se llama cuando una persona pulsa "Devolver pago" en el panel.
+async function refundPayment({ account, order, amountCents }) {
+  const params = {
+    DS_MERCHANT_AMOUNT: String(amountCents),
+    DS_MERCHANT_ORDER: order,
+    DS_MERCHANT_MERCHANTCODE: account.merchantCode,
+    DS_MERCHANT_CURRENCY: '978',
+    DS_MERCHANT_TRANSACTIONTYPE: '3',
+    DS_MERCHANT_TERMINAL: account.terminal,
+  };
+  const merchantParams = b64encodeJson(params);
+  const body = { Ds_SignatureVersion: 'HMAC_SHA256_V1', Ds_MerchantParameters: merchantParams, Ds_Signature: sign(account.secret, order, merchantParams) };
+  const url = process.env.REDSYS_REST_URL || URLS[account.env].rest;
+  let res, data;
+  try {
+    res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
+    data = await res.json();
+  } catch (err) {
+    return { ok: false, error: `No se pudo contactar con Redsys (${err.message}). No se ha devuelto nada.` };
+  }
+  if (data.errorCode) return { ok: false, error: `Redsys rechazó la petición (${data.errorCode}).`, raw: data };
+  if (!data.Ds_MerchantParameters || !sameSignature(sign(account.secret, order, data.Ds_MerchantParameters), data.Ds_Signature)) {
+    return { ok: false, error: 'La respuesta de Redsys no tiene una firma válida.', raw: data };
+  }
+  const p = b64decodeJson(data.Ds_MerchantParameters);
+  // En devoluciones Redsys responde 0900 (devolución aceptada); también valen 0000-0099.
+  const code = String(p.Ds_Response);
+  const ok = code === '0900' || isAuthorized(code);
+  return { ok, response: p.Ds_Response, authCode: p.Ds_AuthorisationCode || null, params: p,
+    error: ok ? null : `Devolución denegada por el banco (código ${p.Ds_Response}).` };
+}
+
 module.exports = {
   TEST_ACCOUNT, URLS, sign, b64encodeJson, b64decodeJson, sameSignature,
   encryptSecret, getAccount, accountSummary, newOrder, cardValidationForm, verifyResponse, isAuthorized, chargeNoShow,
+  paymentForm, refundPayment,
 };

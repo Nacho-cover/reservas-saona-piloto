@@ -304,6 +304,40 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_reservations_guarantee_order ON reservations (guarantee_order) WHERE guarantee_order IS NOT NULL;
   `);
 
+  // Pago anticipado (Redsys) — ver server/prepay.js. Desactivado por defecto en cada local.
+  // Por local: links de pago desde el panel (prepay_enabled), pago automático en la web
+  // para grupos (prepay_web_enabled + prepay_min_party), euros por persona (céntimos) y
+  // horas de antelación mínimas para que se pueda devolver el pago.
+  await pool.query(`
+    ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS prepay_enabled BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS prepay_web_enabled BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS prepay_fee_cents INTEGER NOT NULL DEFAULT 1000;
+    ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS prepay_min_party INTEGER NOT NULL DEFAULT 8;
+    ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS prepay_refund_hours INTEGER NOT NULL DEFAULT 48;
+    -- Por reserva: importe y política vigentes al pedir el pago (no cambian si luego se toca
+    -- la configuración), el pedido de Redsys, y la devolución si la hay.
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_status TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_amount_cents INTEGER;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_order TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_key TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_refund_hours INTEGER;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_paid_at TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_auth_code TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_refund_status TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_refund_at TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_refund_message TEXT;
+    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS prepay_refund_by INTEGER;
+    CREATE INDEX IF NOT EXISTS idx_reservations_prepay_order ON reservations (prepay_order) WHERE prepay_order IS NOT NULL;
+    -- Todos los intentos de pago de una reserva (cada clic en «Pagar» es un pedido nuevo de
+    -- Redsys): así un pago bueno se reconoce aunque el cliente abra la pasarela dos veces.
+    CREATE TABLE IF NOT EXISTS prepay_attempts (
+      order_no TEXT PRIMARY KEY,
+      reservation_id INTEGER NOT NULL,
+      created_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_prepay_attempts_res ON prepay_attempts (reservation_id);
+  `);
+
   // Avisos al cliente (WhatsApp o email), recordatorio del día antes con enlace para
   // confirmar/cancelar, y lista de espera — ver server/notify.js y server/waitlist.js.
   await pool.query(`

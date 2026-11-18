@@ -151,6 +151,7 @@ function makeRouter({ sendConfirmation }) {
     const { rows } = await db.query(`
       SELECT r.id, r.status, r.date, r.time, r.party_size, r.customer_name, r.guarantee_status,
              r.guarantee_fee_cents, r.guarantee_free_cancel_hours, r.card_last4, r.restaurant_id,
+             r.prepay_status, r.prepay_amount_cents, r.prepay_refund_hours,
              rest.name AS restaurant_name, rest.phone AS restaurant_phone
         FROM reservations r JOIN restaurants rest ON rest.id = r.restaurant_id
        WHERE r.id = $1 AND r.guarantee_key = $2`, [Number(req.params.id) || 0, String(req.query.k || '')]);

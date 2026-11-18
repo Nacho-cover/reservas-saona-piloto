@@ -26,6 +26,17 @@ function guaranteeLine(reservation) {
     se cobrarán <strong>${fmt(perPerson)} por persona</strong> (${fmt(total)} en total).</div>`;
 }
 
+// Reserva con pago anticipado recibido: importe y condiciones de devolución.
+function prepayLine(reservation) {
+  if (reservation.prepay_status !== 'paid' || !reservation.prepay_amount_cents) return '';
+  const cents = reservation.prepay_amount_cents;
+  const fmt = (n) => n.toLocaleString('es-ES', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }) + ' €';
+  const hours = reservation.prepay_refund_hours || 0;
+  return `<div style="border:1px solid #e1ded5;border-radius:10px;padding:12px 14px;margin-bottom:20px;font-size:13px;color:#384049;">
+    💰 Hemos recibido tu pago anticipado de <strong>${fmt(cents / 100)}</strong>.
+    Si cancelas con al menos <strong>${hours} h</strong> de antelación se te devolverá; si cancelas más tarde o no te presentas, no se devuelve.</div>`;
+}
+
 function confirmationEmailHtml({ restaurant, reservation, zoneNames }) {
   const fecha = formatFechaLarga(reservation.date);
   const zonaLinea = zoneNames && zoneNames.length
@@ -49,6 +60,7 @@ function confirmationEmailHtml({ restaurant, reservation, zoneNames }) {
         ${zonaLinea}
       </div>
       ${guaranteeLine(reservation)}
+      ${prepayLine(reservation)}
       <p style="margin:0 0 6px;font-size:13px;color:#65728A;">Si necesitas cambiar o cancelar tu reserva, llámanos:</p>
       <p style="margin:0 0 20px;font-size:15px;color:#384049;font-weight:600;">${escHtml(restaurant.phone || '')}</p>
       <p style="margin:0;font-size:13px;color:#65728A;">${escHtml(restaurant.address || '')}</p>

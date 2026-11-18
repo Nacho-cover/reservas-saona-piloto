@@ -109,6 +109,34 @@
     </div>
   </section>
 
+  <!-- Pago anticipado (Redsys) -->
+  <section class="cfg-card" id="prepayCard">
+    <div class="cfg-card-header">
+      <h2>Pago anticipado</h2>
+      <span class="g-state" id="ppState"></span>
+    </div>
+    <p class="cfg-hint">Cobra la reserva por adelantado. El encargado puede crear un <b>link de pago</b> desde la reserva en el panel, y la web puede pedir el pago sola a los grupos a partir de un número de comensales (ese pago sustituye a la tarjeta de garantía). Usa el mismo comercio de Redsys que la garantía.</p>
+    <form id="ppForm">
+      <div class="field-row">
+        <label class="field g-check"><span>Links de pago</span>
+          <label class="chip"><input type="checkbox" id="ppEnabled"> Permitir crear links de pago desde el panel</label></label>
+        <label class="field g-check"><span>Web</span>
+          <label class="chip"><input type="checkbox" id="ppWebEnabled"> Pedir el pago en la web a los grupos</label></label>
+      </div>
+      <div class="field-row">
+        <label class="field"><span>Importe por persona (€)</span><input type="number" id="ppFee" min="1" max="500" step="0.5"></label>
+        <label class="field"><span>Web: pedir pago desde (comensales)</span><input type="number" id="ppMinParty" min="1" max="200" step="1"></label>
+        <label class="field"><span>Se devuelve si cancela con (horas antes)</span><input type="number" id="ppHours" min="0" max="720" step="1"></label>
+      </div>
+      <p class="cfg-hint" id="ppExample" style="margin-top:8px"></p>
+      <p class="cfg-hint" id="ppAccountInfo"></p>
+      <p class="error" id="ppError"></p>
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="btn btn-primary" type="submit" data-perm="schedule">Guardar pago anticipado</button>
+      </div>
+    </form>
+  </section>
+
   <!-- Excepciones -->
   <section class="cfg-card">
     <h2>Próximas excepciones de horario</h2>
@@ -120,5 +148,6 @@
 <script src="/admin/authbar.js"></script>
 <script src="/admin/horarios.js"></script>
 <script src="/admin/garantia.js"></script>
+<script src="/admin/prepago.js"></script>
 </body>
 </html>
