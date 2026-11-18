@@ -121,4 +121,44 @@ async function sendConfirmationEmail({ restaurant, reservation, zoneNames }) {
   });
 }
 
-module.exports = { sendConfirmationEmail, sendEmail, formatFechaLarga, redirectEmail, EMAIL_REDIRECT_TO };
+// Email con el link de pago anticipado (lo envía una persona del restaurante desde el panel).
+function payLinkEmailHtml({ restaurant, reservation, url, amountCents, refundHours }) {
+  const fecha = formatFechaLarga(reservation.date);
+  const fmt = (n) => n.toLocaleString('es-ES', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }) + ' €';
+  return `<!doctype html>
+<html lang="es"><body style="margin:0;padding:0;background:#f4f2ec;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:480px;margin:0 auto;padding:24px 16px;">
+    <div style="background:#152b4e;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px;">
+      <div style="font-size:12px;letter-spacing:4px;font-weight:700;color:#7a99ac;margin-bottom:8px;">SAONA</div>
+      <div style="font-family:Georgia,serif;font-style:italic;font-size:22px;">${escHtml(restaurant.name)}</div>
+      <div style="font-size:13px;opacity:0.85;">Pago anticipado de tu reserva</div>
+    </div>
+    <div style="background:#fff;border-radius:0 0 12px 12px;padding:24px;border:1px solid #e1ded5;border-top:none;">
+      <p style="margin:0 0 16px;font-size:15px;color:#384049;">Hola ${escHtml(reservation.customer_name)},</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#384049;">Para confirmar tu reserva necesitamos el pago anticipado. Aquí tienes los detalles:</p>
+      <div style="background:#f4f2ec;border-radius:10px;padding:16px 18px;margin-bottom:20px;">
+        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">📅 Fecha: <strong style="color:#152b4e;">${fecha}</strong></p>
+        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">🕐 Hora: <strong style="color:#152b4e;">${escHtml(reservation.time)}h</strong></p>
+        <p style="margin:0 0 4px;color:#65728A;font-size:14px;">👥 Comensales: <strong style="color:#152b4e;">${reservation.party_size}</strong></p>
+        <p style="margin:0;color:#65728A;font-size:14px;">💰 Importe: <strong style="color:#152b4e;">${fmt(amountCents / 100)}</strong></p>
+      </div>
+      <p style="margin:0 0 20px;text-align:center;"><a href="${escHtml(url)}" style="display:inline-block;background:#d6001c;color:#fff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 28px;border-radius:10px;">Pagar ${fmt(amountCents / 100)}</a></p>
+      <p style="margin:0 0 16px;font-size:13px;color:#384049;">Si cancelas con al menos <strong>${refundHours} h</strong> de antelación, o si cancelamos nosotros, te devolvemos el pago. Si cancelas más tarde o no te presentas, no se devuelve.</p>
+      <p style="margin:0 0 6px;font-size:13px;color:#65728A;">Si tienes cualquier duda, llámanos:</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#384049;font-weight:600;">${escHtml(restaurant.phone || '')}</p>
+      <p style="margin:0;font-size:13px;color:#65728A;">${escHtml(restaurant.address || '')}</p>
+    </div>
+  </div>
+</body></html>`;
+}
+
+async function sendPayLinkEmail({ restaurant, reservation, url, amountCents, refundHours }) {
+  if (!reservation.email) return { skipped: 'sin email' };
+  return sendEmail({
+    to: reservation.email,
+    subject: `Pago anticipado de tu reserva — ${restaurant.name}`,
+    html: payLinkEmailHtml({ restaurant, reservation, url, amountCents, refundHours }),
+  });
+}
+
+module.exports = { sendConfirmationEmail, sendPayLinkEmail, sendEmail, formatFechaLarga, redirectEmail, EMAIL_REDIRECT_TO };

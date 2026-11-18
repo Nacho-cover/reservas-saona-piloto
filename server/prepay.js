@@ -21,6 +21,7 @@ const adminAuth = require('./adminAuth');
 const perms = require('./permissions');
 const audit = require('./audit');
 const redsys = require('./redsys');
+const { sendPayLinkEmail, EMAIL_REDIRECT_TO } = require('./email');
 
 const ACTIVE_STATUSES = ['confirmed', 'pending_card'];
 
@@ -203,23 +204,49 @@ function makeRouter({ sendConfirmation }) {
   });
 
   // --- El encargado crea (o vuelve a copiar) el link de pago de una reserva ---------
-  router.post('/reservations/:id/prepay-link', adminAuth.can('reservations'), async (req, res) => {
+  // Comprobaciones comunes a «crear/copiar link» y «enviar por email». Devuelve { error } o el contexto.
+  async function linkContext(req) {
     const id = Number(req.params.id);
     const { rows } = await db.query('SELECT * FROM reservations WHERE id = $1', [id]);
     const r = rows[0];
-    if (!r) return res.status(404).json({ error: 'Reserva no encontrada' });
-    if (!perms.canAccessRestaurant(req.user, r.restaurant_id)) return res.status(403).json({ error: 'No tienes acceso a este local.' });
+    if (!r) return { error: [404, 'Reserva no encontrada'] };
+    if (!perms.canAccessRestaurant(req.user, r.restaurant_id)) return { error: [403, 'No tienes acceso a este local.'] };
     const { rows: rest } = await db.query('SELECT * FROM restaurants WHERE id = $1', [r.restaurant_id]);
     const restaurant = rest[0];
-    if (!restaurant.prepay_enabled) return res.status(409).json({ error: 'El pago anticipado no está activado en este local (Horarios → Pago anticipado).' });
-    if (r.prepay_status === 'paid') return res.status(409).json({ error: 'Esta reserva ya está pagada.' });
-    if (r.status !== 'confirmed') return res.status(409).json({ error: 'Solo se puede pedir el pago de una reserva confirmada.' });
-    if (r.date < todayMadrid()) return res.status(409).json({ error: 'La reserva ya ha pasado.' });
-    if (!(await redsys.getAccount(restaurant.id))) return res.status(503).json({ error: 'El local no tiene un comercio de Redsys disponible.' });
+    if (!restaurant.prepay_enabled) return { error: [409, 'El pago anticipado no está activado en este local (Horarios → Pago anticipado).'] };
+    if (r.prepay_status === 'paid') return { error: [409, 'Esta reserva ya está pagada.'] };
+    if (r.status !== 'confirmed') return { error: [409, 'Solo se puede pedir el pago de una reserva confirmada.'] };
+    if (r.date < todayMadrid()) return { error: [409, 'La reserva ya ha pasado.'] };
+    if (!(await redsys.getAccount(restaurant.id))) return { error: [503, 'El local no tiene un comercio de Redsys disponible.'] };
     const { key, amount } = await markPending(r, restaurant);
+    return { r, restaurant, amount, url: `${baseUrl(req)}/p/${r.id}-${key}` };
+  }
+
+  router.post('/reservations/:id/prepay-link', adminAuth.can('reservations'), async (req, res) => {
+    const c = await linkContext(req);
+    if (c.error) return res.status(c.error[0]).json({ error: c.error[1] });
+    const { r, restaurant, amount, url } = c;
     audit.record({ user: req.user, restaurantId: r.restaurant_id, action: 'reserva.link_pago',
       summary: `Reserva #${r.id} ${r.customer_name} · ${r.date} ${r.time}: link de pago de ${euros(amount)} (${euros(restaurant.prepay_fee_cents)} × ${r.party_size})` });
-    res.json({ url: `${baseUrl(req)}/p/${r.id}-${key}`, amountCents: amount, refundHours: restaurant.prepay_refund_hours });
+    res.json({ url, amountCents: amount, refundHours: restaurant.prepay_refund_hours });
+  });
+
+  // El encargado pulsa «Enviar link por email»: se manda al email de la reserva (con el
+  // modo pruebas de email activo, llega a la dirección de pruebas, no al cliente).
+  router.post('/reservations/:id/prepay-link/email', adminAuth.can('reservations'), async (req, res) => {
+    const c = await linkContext(req);
+    if (c.error) return res.status(c.error[0]).json({ error: c.error[1] });
+    const { r, restaurant, amount, url } = c;
+    if (!r.email) return res.status(409).json({ error: 'Esta reserva no tiene email. Copia el link y envíaselo por WhatsApp.' });
+    const sent = await sendPayLinkEmail({ restaurant, reservation: r, url, amountCents: amount, refundHours: restaurant.prepay_refund_hours });
+    if (!sent.ok) {
+      return res.status(502).json({ error: sent.skipped
+        ? 'La web no puede enviar emails ahora mismo (falta la clave de Resend). Copia el link y envíaselo tú.'
+        : 'No se ha podido enviar el email. Copia el link y envíaselo tú.' });
+    }
+    audit.record({ user: req.user, restaurantId: r.restaurant_id, action: 'reserva.link_pago_email',
+      summary: `Reserva #${r.id} ${r.customer_name} · ${r.date} ${r.time}: link de pago de ${euros(amount)} enviado por email a ${r.email}${EMAIL_REDIRECT_TO ? ` (modo pruebas: llega a ${EMAIL_REDIRECT_TO})` : ''}` });
+    res.json({ ok: true, to: r.email, redirectedTo: EMAIL_REDIRECT_TO || null, amountCents: amount });
   });
 
   // --- Devolver el pago -----------------------------------------------------------

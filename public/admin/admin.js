@@ -288,6 +288,7 @@ function renderRow(r) {
   if (pp.prepay_enabled && r.status === 'confirmed' && r.prepay_status !== 'paid' && r.date >= todayISO()) {
     const label = r.prepay_status === 'pending' ? 'Copiar link de pago' : `Crear link de pago (${eurosTxt((pp.prepay_fee_cents || 0) * r.party_size)})`;
     actions.appendChild(actionBtn(label, () => createPayLink(r), 'btn-charge'));
+    if (r.email) actions.appendChild(actionBtn('Enviar link por email', () => emailPayLink(r), 'btn-charge'));
   }
   if (r.refund_eligible && hasPerm('penalties')) {
     actions.appendChild(actionBtn(`Devolver pago (${eurosTxt(r.prepay_amount_cents)})`, () => refundPrepay(r), 'btn-charge'));
@@ -378,6 +379,14 @@ async function createPayLink(r) {
     // Si el navegador no deja copiar solo, se enseña el link para copiarlo a mano.
     prompt(`Link de pago de ${eurosTxt(data.amountCents)}. Cópialo (Ctrl+C) y envíaselo al cliente:`, data.url);
   }
+}
+async function emailPayLink(r) {
+  if (!confirm(`¿Enviar ahora el link de pago a ${r.email}?\n\nEl cliente recibirá un email con el importe y el botón de pago.`)) return;
+  const res = await fetch(`/api/reservations/${r.id}/prepay-link/email`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { alert(data.error || 'No se pudo enviar el email.'); return; }
+  await loadReservations();
+  toast(data.redirectedTo ? `Email enviado. Modo pruebas: ha llegado a ${data.redirectedTo}, no al cliente.` : `Link de pago enviado a ${data.to}.`);
 }
 async function refundPrepay(r) {
   const why = r.cancelled_by === 'restaurant' ? 'La cancela el restaurante' : `Canceló con al menos ${r.prepay_refund_hours} h de antelación`;
