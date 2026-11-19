@@ -727,7 +727,7 @@ const PAGOS_ES = {
   failed: 'Rechazada', refunded: 'Devuelto', waiting: 'Esperando', offered: 'Oferta enviada', accepted: 'Aceptada',
   expired: 'Caducada', cancelled: 'Cancelada', sent: 'Enviado', error: 'Con error',
 };
-const AVISOS_ES = { reminder: 'Recordatorio del día antes', waitlist_offer: 'Oferta de mesa (lista de espera)' };
+const AVISOS_ES = { reminder: 'Recordatorio del día antes', waitlist_offer: 'Oferta de mesa (lista de espera)', waitlist_joined: 'Aviso de alta en la lista de espera' };
 function valorEs(event, v) {
   if (v == null || v === '') return '';
   if (['creada', 'estado', 'cancelada', 'no_show', 'confirmada', 'reactivada', 'abandonada', 'eliminada'].includes(event)) return ESTADOS_ES[v] || v;

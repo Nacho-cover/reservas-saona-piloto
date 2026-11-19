@@ -41,6 +41,16 @@ Ejemplos: {{1}} Ana · {{2}} Saona Balboa · {{3}} viernes, 23 de octubre · {{4
 Botón: **Visitar sitio web** · texto «Confirmar la mesa» · URL **dinámica**:
 `https://reservas-saona-piloto.onrender.com/l/{{1}}`
 
+### `saona_lista_espera_alta` (nueva, opcional)
+
+Aviso de que ya estás en la lista de espera. Sin botón. Mientras no esté aprobada, el aviso sale por email.
+
+Cuerpo:
+
+> Hola {{1}}, ese horario de {{2}} está completo y te hemos apuntado en la lista de espera: {{3}} a las {{4}} para {{5}} personas. Eres el nº {{6}} de la lista. Si se libera una mesa, te avisaremos por aquí y tendrás unos minutos para confirmarla.
+
+Ejemplos: {{1}} Ana · {{2}} Saona Balboa · {{3}} viernes, 23 de octubre · {{4}} 21:00 · {{5}} 4 · {{6}} 2
+
 > Si algún día cambia el dominio de la web, hay que volver a aprobar las plantillas con la URL nueva.
 
 ## 3. Variables en Render

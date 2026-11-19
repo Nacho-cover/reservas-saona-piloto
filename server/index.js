@@ -430,7 +430,7 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
       .find(s => requestedMinutes >= availability.toMinutes(s.start_time) && requestedMinutes <= availability.toMinutes(s.end_time));
     const closed = await availability.closedShifts(restaurant.id, date);
     if (matchingShift && closed.has(matchingShift.name)) {
-      return res.status(409).json({ error: `El turno de ${matchingShift.name} no admite más reservas ese día. Elige otra hora.` });
+      return res.status(409).json({ waitlist: true, error: `El turno de ${matchingShift.name} está completo ese día. Te apuntamos en la lista de espera.` });
     }
   }
 
@@ -472,13 +472,13 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
         restaurant.id, date, startMinutes, duration, Number(partySize), buffer, null, zoneId
       );
       if (!tables) {
-        return { error: 409, message: 'Ya no hay disponibilidad para esa franja en la zona elegida. Elige otra hora o zona.' };
+        return { error: 409, waitlist: !isStaffBooking, message: 'Ya no hay mesa libre a esa hora. Te apuntamos en la lista de espera.' };
       }
     }
     // El cupo por intervalo es del motor web (como en Cover): el personal puede anotar por
     // encima de él por teléfono o sentar walk-ins.
     if (!isStaffBooking && !(await availability.hasCapacityRoom(restaurant.id, date, startMinutes, Number(partySize), null))) {
-      return { error: 409, message: 'Se ha alcanzado el aforo máximo para esa franja horaria. Elige otra hora.' };
+      return { error: 409, waitlist: true, message: 'Esa hora está completa. Te apuntamos en la lista de espera.' };
     }
 
     const reservationId = await (async () => {
@@ -515,7 +515,7 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
     })();
     return { reservationId, tables };
   });
-  if (outcome.error) return res.status(outcome.error).json({ error: outcome.message });
+  if (outcome.error) return res.status(outcome.error).json({ error: outcome.message, waitlist: !!outcome.waitlist });
   const { reservationId, tables } = outcome;
 
   const { rows: reservationRows } = await db.query('SELECT * FROM reservations WHERE id = $1', [reservationId]);

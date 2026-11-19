@@ -17,7 +17,7 @@ const HIST_PAGO = {
   refunded: 'Devuelto', waiting: 'Esperando', offered: 'Oferta enviada', accepted: 'Aceptada', expired: 'Caducada',
   cancelled: 'Cancelada', sent: 'Enviado',
 };
-const HIST_AVISO = { reminder: 'Recordatorio del día antes', waitlist_offer: 'Oferta de mesa (lista de espera)' };
+const HIST_AVISO = { reminder: 'Recordatorio del día antes', waitlist_offer: 'Oferta de mesa (lista de espera)', waitlist_joined: 'Aviso de alta en la lista de espera' };
 const HIST_CANAL = { whatsapp: 'WhatsApp', email: 'Email' };
 const HIST_ESTADO_EVENTOS = ['creada', 'estado', 'cancelada', 'no_show', 'confirmada', 'reactivada', 'abandonada', 'eliminada'];
 

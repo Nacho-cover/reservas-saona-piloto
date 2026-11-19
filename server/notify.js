@@ -25,6 +25,7 @@ const escHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&
 const TEMPLATES = {
   reminder: process.env.WHATSAPP_TEMPLATE_REMINDER || 'saona_recordatorio_reserva',
   waitlist: process.env.WHATSAPP_TEMPLATE_WAITLIST || 'saona_lista_espera_mesa',
+  waitlistJoined: process.env.WHATSAPP_TEMPLATE_WAITLIST_JOINED || 'saona_lista_espera_alta',
 };
 
 function whatsappConfigured() {
@@ -157,4 +158,25 @@ async function sendWaitlistOffer({ restaurant, entry, baseUrl, minutes }) {
   });
 }
 
-module.exports = { whatsappConfigured, waNumber, sendReminder, sendWaitlistOffer, TEMPLATES };
+// Aviso al cliente de que ya está en la lista de espera (y en qué puesto).
+async function sendWaitlistJoined({ restaurant, entry, baseUrl, position }) {
+  const token = `${entry.id}-${entry.access_key}`;
+  const url = `${baseUrl}/l/${token}`;
+  const fecha = fechaCorta(entry.date);
+  return deliver({
+    kind: 'waitlist_joined', restaurant, waitlistId: entry.id, phone: entry.phone, email: entry.email,
+    wa: { template: TEMPLATES.waitlistJoined, bodyParams: [entry.customer_name, restaurant.name, fecha, entry.time, entry.party_size, position] },
+    mail: {
+      subject: `Estás en la lista de espera de ${restaurant.name}`,
+      html: emailShell({
+        restaurant, title: 'Lista de espera',
+        intro: `Hola ${escHtml(entry.customer_name)}, ese horario está completo y te hemos apuntado en la lista de espera. Eres el nº ${position}.`,
+        rows: [`📅 ${formatFechaLarga(entry.date)}`, `🕐 ${entry.time}h`, `👥 ${entry.party_size} personas`],
+        buttonUrl: url, buttonText: 'Ver mi puesto en la lista',
+        outro: 'Si alguien cancela, te avisaremos al momento y tendrás unos minutos para confirmar la mesa. Si ya no la quieres, quítate desde el enlace.',
+      }),
+    },
+  });
+}
+
+module.exports = { whatsappConfigured, waNumber, sendReminder, sendWaitlistOffer, sendWaitlistJoined, TEMPLATES };

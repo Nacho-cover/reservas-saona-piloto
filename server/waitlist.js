@@ -109,6 +109,16 @@ async function processDay(restaurantId, date, req) {
     running.delete(k);
   }
 }
+// Avisa al cliente de que está en la lista (sin esperar y sin que un fallo afecte al alta).
+async function notifyJoined(restaurant, entry, req) {
+  try {
+    if (!entry.phone && !entry.email) return;
+    const { rows } = await db.query(`SELECT COUNT(*)::int AS n FROM waitlist WHERE restaurant_id = $1 AND date = $2
+      AND status IN ('waiting','offered') AND (created_at < $3 OR (created_at = $3 AND id <= $4))`,
+    [restaurant.id, entry.date, entry.created_at, entry.id]);
+    await notify.sendWaitlistJoined({ restaurant, entry, baseUrl: baseUrl(req), position: Math.max(1, rows[0].n) });
+  } catch (err) { console.error('[lista de espera] aviso de alta:', err.message); }
+}
 // Para llamar sin esperar (p. ej. justo después de cancelar una reserva).
 function onReservationFreed(restaurantId, date, req) {
   processDay(restaurantId, date, req).catch(err => console.error('[lista de espera]', err.message));
@@ -178,11 +188,13 @@ function makeRouter() {
       AND saona_norm_phone(phone) = saona_norm_phone($3)`, [restaurant.id, b.date, b.phone]);
     if (dup.length) return res.status(409).json({ error: 'Ya estás en la lista de espera de ese día. Te avisaremos si se libera una mesa.' });
     const { rows } = await db.query(`INSERT INTO waitlist (restaurant_id, date, time, party_size, customer_name, phone, email, notes, source, access_key)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'web',$9) RETURNING id, date, time, party_size`,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'web',$9) RETURNING id, date, time, party_size, customer_name, phone, email, access_key, created_at`,
     [restaurant.id, b.date, b.time, Number(b.partySize), String(b.customerName).trim(), String(b.phone).trim(), (b.email || '').trim() || null, (b.notes || '').trim() || null, newKey()]);
     // Puede que ya haya sitio (se liberó algo mientras elegía): se mira en el momento.
-    onReservationFreed(restaurant.id, b.date, req);
-    res.status(201).json({ ...rows[0], channel: notify.whatsappConfigured() ? 'whatsapp' : (b.email ? 'email' : 'whatsapp') });
+    // Primero el aviso de «estás en la lista»; si ya hay sitio, la oferta sale justo después.
+    notifyJoined(restaurant, rows[0], req).finally(() => onReservationFreed(restaurant.id, b.date, req));
+    const { access_key, ...pub } = rows[0];
+    res.status(201).json({ id: pub.id, date: pub.date, time: pub.time, party_size: pub.party_size, channel: notify.whatsappConfigured() ? 'whatsapp' : (b.email ? 'email' : 'whatsapp') });
   });
 
   // Oferta de mesa (enlace del aviso).
@@ -296,7 +308,7 @@ function makeRouter() {
       (b.email || '').trim() || null, (b.notes || '').trim() || null, newKey(), req.user.id]);
     audit.record({ user: req.user, restaurantId, action: 'reserva.lista_espera',
       summary: `Lista de espera: ${rows[0].customer_name} · ${rows[0].party_size} pax · ${rows[0].date} ${rows[0].time}` });
-    onReservationFreed(restaurantId, b.date, req);
+    restaurantById(restaurantId).then(r => notifyJoined(r, rows[0], req)).finally(() => onReservationFreed(restaurantId, b.date, req));
     res.status(201).json(rows[0]);
   });
   staff.patch('/:id', async (req, res) => {

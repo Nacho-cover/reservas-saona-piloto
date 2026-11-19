@@ -189,6 +189,8 @@ function renderSlots(slots) {
   }
 
   showStep('step-slots');
+  // Todo el día completo: en vez de un callejón sin salida, directo a la lista de espera.
+  if (slots.length && !hasAny) openWaitlist(null, 'Ese día está completo. Te apuntamos en la lista de espera: si se libera una mesa, te avisamos.');
 }
 
 function selectSlot(time, btnEl) {
@@ -307,6 +309,13 @@ async function confirmReservation() {
     });
     const data = await res.json();
     if (!res.ok) {
+      if (data.waitlist) {
+        // La hora se llenó mientras rellenaba el formulario: pasa directo a la lista de espera.
+        const full = (state.slots || []).find(x => x.time === state.selectedTime);
+        if (full) full.available = false;
+        openWaitlist(state.selectedTime, 'Esa hora se acaba de completar. Te apuntamos en la lista de espera: si se libera una mesa, te avisamos.');
+        return;
+      }
       throw new Error(data.error || 'No se pudo confirmar la reserva');
     }
 
@@ -453,7 +462,7 @@ async function showPayPage(id, k) {
 }
 
 // --- Lista de espera ---------------------------------------------------------------
-function openWaitlist(time) {
+function openWaitlist(time, intro) {
   const sel = $('wlTime');
   sel.innerHTML = '';
   for (const s of (state.slots || []).filter(x => !x.available)) {
@@ -463,7 +472,7 @@ function openWaitlist(time) {
   }
   if (time) sel.value = time;
   else { const firstFull = (state.slots || []).find(s => !s.available); if (firstFull) sel.value = firstFull.time; }
-  $('wlSummary').textContent = `${partyWord()} · ${dateFmtLong()}. Si se libera una mesa a esa hora te avisamos y tendrás unos minutos para confirmarla.`;
+  $('wlSummary').textContent = (intro ? intro + ' ' : '') + `${partyWord()} · ${dateFmtLong()}. Tendrás unos minutos para confirmar la mesa cuando te avisemos.`;
   for (const [from, to] of [['nameInput', 'wlName'], ['phoneInput', 'wlPhone'], ['emailInput', 'wlEmail']]) if (!$(to).value) $(to).value = $(from).value;
   $('wlError').textContent = '';
   showStep('step-waitlist');
@@ -512,6 +521,11 @@ async function handleWaitlistOffer() {
   if (!res.ok) { showMessage('Enlace no válido', 'Este enlace de la lista de espera no es válido.', '!'); return true; }
   const w = await res.json();
   if (w.status === 'accepted') { showMessage('Mesa ya confirmada', 'Ya confirmaste esta mesa. ¡Te esperamos!', '✓'); return true; }
+  if (w.status === 'waiting') {
+    showMessage('Sigues en la lista de espera', `Todavía no se ha liberado ninguna mesa para el ${new Date(w.date + 'T00:00:00').toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })} a las ${w.time}h. Si alguien cancela, te avisaremos al momento.`, '⏳');
+    return true;
+  }
+  if (w.status === 'cancelled') { showMessage('Ya no estás en la lista', 'Te quitaste de la lista de espera.', '✓'); return true; }
   if (w.status !== 'offered') {
     showMessage('La oferta ha caducado', `Lo sentimos, el tiempo para confirmar la mesa se ha agotado y se ha ofrecido a la siguiente persona. ${w.status === 'expired' ? 'Puedes volver a apuntarte o llamarnos' + (w.restaurant.phone ? ' al ' + w.restaurant.phone : '') + '.' : ''}`, '⌛');
     return true;
