@@ -502,6 +502,11 @@ async function initDb() {
         WHERE name = $3 AND restaurant_id = (SELECT id FROM restaurants WHERE name = 'Saona Plaza España' LIMIT 1)`,
       [x, y, name]);
   }
+
+  // Hoja de vida de la reserva (trazabilidad de principio a fin), cliente único del grupo,
+  // turno fijo en cada reserva y seguridad por filas — ver server/trace.js. Va al final
+  // porque usa tablas y columnas de todos los bloques anteriores.
+  await require('./trace').init(pool);
 }
 
 // Envuelve varias queries en una única transacción (BEGIN/COMMIT/ROLLBACK),

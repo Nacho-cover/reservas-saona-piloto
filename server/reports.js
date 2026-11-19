@@ -20,6 +20,7 @@ const dayjs = require('dayjs');
 const db = require('./db');
 const { can } = require('./adminAuth');
 const perms = require('./permissions');
+const { EVENT_LABELS } = require('./trace');
 
 const router = express.Router();
 router.use(can('reports'));
@@ -30,9 +31,11 @@ router.use(can('reports'));
 // (UTC en Supabase); en los informes se muestran en hora de España.
 const LOCAL_TS = col => `(NULLIF(${col}, '')::timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Madrid')`;
 
-// Turno de la reserva según el horario semanal del local (tabla shifts). Si la hora
-// no cae dentro de ningún turno configurado, antes de las 17:00 cuenta como Comida.
-const TURNO_SQL = `COALESCE(
+// Turno de la reserva: el que se guardó al reservar (reservations.shift_name, así un cambio
+// posterior de horario no altera los informes del pasado). Si falta, se calcula con el
+// horario semanal del local (tabla shifts); si la hora no cae en ningún turno, antes de
+// las 17:00 cuenta como Comida.
+const TURNO_SQL = `COALESCE(r.shift_name,
   (SELECT s.name FROM shifts s
     WHERE s.restaurant_id = r.restaurant_id
       AND s.day_of_week = EXTRACT(DOW FROM r.date::date)
@@ -535,12 +538,224 @@ const REPORTS = [
       return { columns: ['Local', 'País', 'Reservas', 'Personas'], rows: out };
     },
   },
+
+  // ---------------- Trazabilidad (hoja de vida de las reservas) ----------------
+  {
+    id: 'trazabilidad', sheet: 'Trazabilidad', group: 'Trazabilidad', title: 'Trazabilidad de las reservas (hoja de vida)',
+    description: 'Cada hecho de cada reserva, de principio a fin: creada, mesa, recordatorio, confirmación del cliente, sentada, completada, cancelada, pagos, avisos y abandonadas. Con la hora exacta y el canal.',
+    params: ['dateType'],
+    async run(ctx) {
+      const byAnot = ctx.dateType === 'anotacion';
+      const res = await db.query(`
+        SELECT rest.name AS local,
+               COALESCE(r.date, e.details->>'fecha') AS fecha, COALESCE(r.time, e.details->>'hora') AS hora,
+               COALESCE(r.shift_name, e.details->>'turno') AS turno, e.reservation_id AS reserva,
+               COALESCE(r.customer_name, e.details->>'nombre') AS cliente, r.phone AS telefono,
+               to_char(e.at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM-DD HH24:MI:SS') AS momento,
+               e.event, e.from_value, e.to_value, e.channel, e.details
+          FROM reservation_events e
+          LEFT JOIN reservations r ON r.id = e.reservation_id
+          LEFT JOIN restaurants rest ON rest.id = e.restaurant_id
+         WHERE ($1::int[] IS NULL OR e.restaurant_id = ANY($1::int[]))
+           AND ${byAnot ? "to_char(e.at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM-DD')" : "COALESCE(r.date, e.details->>'fecha')"} BETWEEN $2 AND $3
+         ORDER BY rest.name, e.reservation_id NULLS LAST, e.at, e.id
+         LIMIT 100000`, [ctx.restaurantId, ctx.from, ctx.to]);
+      const columns = ['Local', 'Fecha reserva', 'Hora', 'Turno', 'Reserva nº', 'Cliente', 'Teléfono',
+        'Momento (hora España)', 'Hecho', 'De', 'A', 'Canal', 'Detalle', 'Reconstruido'];
+      const rows = res.rows.map(e => [e.local, e.fecha, e.hora, e.turno, e.reserva, e.cliente, e.telefono, e.momento,
+        EVENT_LABELS[e.event] || e.event, valorEs(e.event, e.from_value), valorEs(e.event, e.to_value),
+        CANALES_ES[e.channel] || e.channel || '', detalleEvento(e), e.details && e.details.reconstruido ? 'Sí' : '']);
+      return { columns, rows };
+    },
+  },
+  {
+    id: 'embudo', sheet: 'Embudo', group: 'Trazabilidad', title: 'Embudo de reservas (de intento a mesa)',
+    description: 'Por local y turno: intentos, abandonadas, reservas, recordatorios, confirmaciones del cliente, cancelaciones, no show, llegadas y completadas.',
+    params: ['dateType'],
+    async run(ctx) {
+      const { sql, params } = baseCte(ctx);
+      const { rows: base } = await db.query(`${sql}
+        SELECT b.local, b.turno,
+               COUNT(*)::int AS creadas, COALESCE(SUM(b.party_size), 0)::int AS personas,
+               COUNT(*) FILTER (WHERE b.reminder_sent_at IS NOT NULL)::int AS recordatorio,
+               COUNT(*) FILTER (WHERE b.customer_confirmed_at IS NOT NULL)::int AS confirmo,
+               COUNT(*) FILTER (WHERE b.status = 'cancelled' AND b.cancelled_by = 'customer')::int AS canc_cliente,
+               COUNT(*) FILTER (WHERE b.status = 'cancelled' AND COALESCE(b.cancelled_by, '') <> 'customer')::int AS canc_rest,
+               COUNT(*) FILTER (WHERE b.status = 'no_show')::int AS no_show,
+               COUNT(*) FILTER (WHERE b.status IN ${FUERON})::int AS llegaron,
+               COUNT(*) FILTER (WHERE b.status = 'completed')::int AS completadas,
+               COUNT(*) FILTER (WHERE b.status = 'confirmed')::int AS pendientes
+          FROM base b WHERE b.status <> 'pending_card' GROUP BY b.local, b.turno`, params);
+      const dateExpr = ctx.dateType === 'anotacion'
+        ? "to_char(e.at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM-DD')" : "e.details->>'fecha'";
+      const { rows: ab } = await db.query(`
+        SELECT rest.name AS local, COALESCE(e.details->>'turno', 'Sin turno') AS turno, COUNT(*)::int AS abandonadas
+          FROM reservation_events e JOIN restaurants rest ON rest.id = e.restaurant_id
+         WHERE e.event = 'abandonada' AND ($1::int[] IS NULL OR e.restaurant_id = ANY($1::int[]))
+           AND ${dateExpr} BETWEEN $2 AND $3
+         GROUP BY rest.name, COALESCE(e.details->>'turno', 'Sin turno')`, params);
+      const map = new Map();
+      const blank = (local, turno) => ({ local, turno, creadas: 0, personas: 0, recordatorio: 0, confirmo: 0, canc_cliente: 0,
+        canc_rest: 0, no_show: 0, llegaron: 0, completadas: 0, pendientes: 0, abandonadas: 0 });
+      for (const r of base) map.set(`${r.local}\u0000${r.turno}`, { abandonadas: 0, ...r });
+      for (const a of ab) {
+        const k = `${a.local}\u0000${a.turno}`;
+        const row = map.get(k) || blank(a.local, a.turno);
+        row.abandonadas = a.abandonadas; map.set(k, row);
+      }
+      const pct = (n, d) => (d ? Math.round(1000 * n / d) / 10 : null);
+      const rows = [...map.values()].sort((x, y) => x.local.localeCompare(y.local, 'es') || x.turno.localeCompare(y.turno, 'es'))
+        .map(r => [r.local, r.turno, r.creadas + r.abandonadas, r.abandonadas, pct(r.abandonadas, r.creadas + r.abandonadas),
+          r.creadas, r.personas, r.recordatorio, r.confirmo, r.canc_cliente, r.canc_rest, r.no_show, r.pendientes,
+          r.llegaron, r.completadas, pct(r.llegaron, r.llegaron + r.no_show)]);
+      return { columns: ['Local', 'Turno', 'Intentos (reservas + abandonadas)', 'Abandonadas', '% abandono', 'Reservas creadas',
+        'Personas', 'Recordatorio enviado', 'Cliente confirmó asistencia', 'Canceladas por cliente', 'Canceladas por restaurante',
+        'No show', 'Pendientes de llegar', 'Llegaron (sentados)', 'Completadas', '% asistencia (llegaron / llegaron + no show)'], rows };
+    },
+  },
+  {
+    id: 'tiempos', sheet: 'Tiempos', group: 'Trazabilidad', title: 'Tiempos de cada reserva (anotación, llegada y mesa)',
+    description: 'Cuándo se anotó, con cuántos días de antelación, cuándo se envió el recordatorio, cuándo confirmó el cliente, cuándo se sentó y cuánto tiempo ocupó la mesa. Solo con datos desde que existe la hoja de vida.',
+    params: ['dateType'],
+    async run(ctx) {
+      const { sql, params } = baseCte(ctx);
+      return run(`${sql}
+        SELECT b.local AS "Local", b.date AS "Fecha", b.time AS "Hora", b.turno AS "Turno", b.id AS "Reserva nº",
+               b.customer_name AS "Cliente", b.party_size AS "Pax", b.estado AS "Estado", b.canal AS "Canal",
+               ${FMT_TS('b.anotada')} AS "Anotada",
+               ROUND((EXTRACT(EPOCH FROM (b.inicio - b.anotada)) / 86400.0)::numeric, 1) AS "Antelación (días)",
+               ${FMT_TS(LOCAL_TS('b.reminder_sent_at'))} AS "Recordatorio enviado",
+               ${FMT_TS(LOCAL_TS('b.customer_confirmed_at'))} AS "Cliente confirmó",
+               ${FMT_TS('ev.sentada')} AS "Sentada", ${FMT_TS('ev.fin')} AS "Mesa liberada",
+               ROUND(EXTRACT(EPOCH FROM (ev.sentada - b.inicio)) / 60.0)::int AS "Minutos entre la hora reservada y sentarse",
+               ROUND(EXTRACT(EPOCH FROM (ev.fin - ev.sentada)) / 60.0)::int AS "Minutos en mesa"
+          FROM base b
+          LEFT JOIN LATERAL (
+            SELECT MIN(e.at AT TIME ZONE 'Europe/Madrid') FILTER (WHERE e.to_value = 'seated') AS sentada,
+                   MIN(e.at AT TIME ZONE 'Europe/Madrid') FILTER (WHERE e.to_value = 'completed') AS fin
+              FROM reservation_events e
+             WHERE e.reservation_id = b.id AND e.event IN ('creada', 'estado')
+               AND NOT COALESCE((e.details->>'reconstruido')::boolean, false)
+          ) ev ON true
+         WHERE b.status <> 'pending_card'
+         ORDER BY b.local, b.date, b.time`, params);
+    },
+  },
+  {
+    id: 'cobros', sheet: 'Cobros y pagos', group: 'Trazabilidad', title: 'Cobros y pagos (garantía, pago anticipado, penalizaciones y devoluciones)',
+    description: 'Las reservas con tarjeta de garantía, pago anticipado, penalización o devolución, con importes y fechas.',
+    params: ['dateType'],
+    async run(ctx) {
+      const { sql, params } = baseCte(ctx);
+      const eur = c => `ROUND(${c} / 100.0, 2)`;
+      return run(`${sql}
+        SELECT b.local AS "Local", b.date AS "Fecha", b.time AS "Hora", b.id AS "Reserva nº", b.customer_name AS "Cliente",
+               b.party_size AS "Pax", b.estado AS "Estado",
+               CASE b.guarantee_status WHEN 'ok' THEN 'Tarjeta recibida' WHEN 'pending' THEN 'Pendiente' ELSE b.guarantee_status END AS "Garantía con tarjeta",
+               CASE WHEN b.card_last4 IS NOT NULL THEN '···' || b.card_last4 END AS "Tarjeta",
+               CASE b.prepay_status WHEN 'paid' THEN 'Pagado' WHEN 'pending' THEN 'Pendiente de pago' ELSE b.prepay_status END AS "Pago anticipado",
+               ${eur('b.prepay_amount_cents')} AS "Importe pago anticipado (€)",
+               ${FMT_TS(LOCAL_TS('b.prepay_paid_at'))} AS "Pagado el",
+               CASE b.prepay_refund_status WHEN 'refunded' THEN 'Devuelto' WHEN 'processing' THEN 'En curso' WHEN 'failed' THEN 'Fallida' ELSE b.prepay_refund_status END AS "Devolución",
+               ${FMT_TS(LOCAL_TS('b.prepay_refund_at'))} AS "Devuelto el",
+               CASE b.penalty_status WHEN 'charged' THEN 'Cobrada' WHEN 'processing' THEN 'En curso' WHEN 'failed' THEN 'Rechazada' ELSE b.penalty_status END AS "Penalización",
+               ${eur('b.penalty_amount_cents')} AS "Importe penalización (€)",
+               ${FMT_TS(LOCAL_TS('b.penalty_at'))} AS "Penalizada el"
+          FROM base b
+         WHERE b.guarantee_status IS NOT NULL OR b.prepay_status IS NOT NULL OR b.penalty_status IS NOT NULL
+         ORDER BY b.local, b.date, b.time`, params);
+    },
+  },
+
+  // ---------------- Clientes: historial único del grupo ----------------
+  {
+    id: 'cliente_historico', sheet: 'Histórico clientes', group: 'Clientes', title: 'Histórico de clientes del grupo (un cliente, todos los locales)',
+    description: 'Cada cliente (por teléfono o email) con todo su historial en los locales a los que tienes acceso: reservas, visitas, no show, cancelaciones, abandonos, avisos y valoración media.',
+    params: [],
+    async run(ctx) {
+      return run(`
+        WITH g AS (
+          SELECT r.guest_key,
+                 (array_agg(r.customer_name ORDER BY r.created_at DESC))[1] AS nombre,
+                 MAX(r.phone) AS telefono, MAX(r.email) AS email,
+                 MIN(r.date) AS primera, MAX(r.date) AS ultima,
+                 COUNT(*)::int AS reservas,
+                 COALESCE(SUM(r.party_size) FILTER (WHERE ${VIVAS}), 0)::int AS personas,
+                 COUNT(*) FILTER (WHERE r.status IN ${FUERON})::int AS visitas,
+                 COUNT(*) FILTER (WHERE r.status = 'no_show')::int AS no_show,
+                 COUNT(*) FILTER (WHERE r.status = 'cancelled' AND r.cancelled_by = 'customer')::int AS cancelaciones,
+                 COUNT(*) FILTER (WHERE r.date BETWEEN $2 AND $3)::int AS en_periodo,
+                 COUNT(DISTINCT r.restaurant_id)::int AS locales_n,
+                 string_agg(DISTINCT rest.name, ', ') AS locales
+            FROM reservations r JOIN restaurants rest ON rest.id = r.restaurant_id
+           WHERE r.guest_key IS NOT NULL AND r.status <> 'pending_card'
+             AND ($1::int[] IS NULL OR r.restaurant_id = ANY($1::int[]))
+           GROUP BY r.guest_key
+        ), ev AS (
+          SELECT e.guest_key,
+                 COUNT(*) FILTER (WHERE e.event = 'abandonada')::int AS abandonos,
+                 COUNT(*) FILTER (WHERE e.event = 'aviso')::int AS avisos
+            FROM reservation_events e
+           WHERE e.guest_key IS NOT NULL AND ($1::int[] IS NULL OR e.restaurant_id = ANY($1::int[]))
+           GROUP BY e.guest_key
+        ), val AS (
+          SELECT r.guest_key, ROUND(AVG(s.rating_general), 1) AS media
+            FROM survey_responses s JOIN reservations r ON r.id = s.reservation_id
+           WHERE r.guest_key IS NOT NULL AND ($1::int[] IS NULL OR r.restaurant_id = ANY($1::int[]))
+           GROUP BY r.guest_key
+        )
+        SELECT g.nombre AS "Nombre", g.telefono AS "Teléfono", g.email AS "Email",
+               g.primera AS "Primera reserva", g.ultima AS "Última reserva",
+               g.reservas AS "Reservas (histórico)", g.en_periodo AS "Reservas en el periodo", g.personas AS "Personas",
+               g.visitas AS "Visitas", g.no_show AS "No show", g.cancelaciones AS "Cancelaciones del cliente",
+               COALESCE(ev.abandonos, 0) AS "Abandonos (no terminó el pago)", COALESCE(ev.avisos, 0) AS "Avisos enviados",
+               val.media AS "Valoración media", g.locales_n AS "Locales distintos", g.locales AS "Locales"
+          FROM g LEFT JOIN ev USING (guest_key) LEFT JOIN val USING (guest_key)
+         ORDER BY g.reservas DESC, g.ultima DESC LIMIT 5000`, [ctx.restaurantId, ctx.from, ctx.to]);
+    },
+  },
 ];
+
+// --- Textos de la hoja de vida en español -----------------------------------------------
+const ESTADOS_ES = {
+  confirmed: 'Confirmada', pending_card: 'Pendiente de tarjeta o pago', seated: 'Sentada', eating: 'Comiendo', dessert: 'Postre',
+  paid: 'Pagada', completed: 'Completada', cancelled: 'Cancelada', no_show: 'No show',
+};
+const CANALES_ES = { web: 'Web', app: 'App', phone: 'Teléfono', admin: 'Panel', walkin: 'Walk-in', whatsapp: 'WhatsApp', email: 'Email' };
+const PAGOS_ES = {
+  ok: 'Tarjeta recibida', pending: 'Pendiente', paid: 'Pagado', charged: 'Cobrada', processing: 'En curso',
+  failed: 'Rechazada', refunded: 'Devuelto', waiting: 'Esperando', offered: 'Oferta enviada', accepted: 'Aceptada',
+  expired: 'Caducada', cancelled: 'Cancelada', sent: 'Enviado', error: 'Con error',
+};
+const AVISOS_ES = { reminder: 'Recordatorio del día antes', waitlist_offer: 'Oferta de mesa (lista de espera)' };
+function valorEs(event, v) {
+  if (v == null || v === '') return '';
+  if (['creada', 'estado', 'cancelada', 'no_show', 'confirmada', 'reactivada', 'abandonada', 'eliminada'].includes(event)) return ESTADOS_ES[v] || v;
+  if (['garantia', 'penalizacion', 'pago_anticipado', 'devolucion_pago', 'aviso'].includes(event) || event.startsWith('lista_espera')) return PAGOS_ES[v] || v;
+  if (event === 'valoracion') return `${v} / 5`;
+  return v;
+}
+function detalleEvento(e) {
+  const d = e.details || {};
+  const euros = c => (c == null ? '' : `${(Number(c) / 100).toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`);
+  switch (e.event) {
+    case 'creada': return `${d.pax || ''} pax · ${d.fecha || ''} ${d.hora || ''}`.trim();
+    case 'cancelada': return d.cancelado_por === 'customer' ? 'Cancela el cliente' : 'Cancela el restaurante';
+    case 'modificada': return `${d.antes ? `${d.antes.pax} pax ${d.antes.fecha} ${d.antes.hora}` : ''} → ${d.despues ? `${d.despues.pax} pax ${d.despues.fecha} ${d.despues.hora}` : ''}`;
+    case 'mesa_asignada': case 'mesa_liberada': return e.to_value ? `Mesa ${e.to_value}` : '';
+    case 'aviso': return [AVISOS_ES[d.tipo] || d.tipo, d.error].filter(Boolean).join(' · ');
+    case 'garantia': return d.tarjeta ? `Tarjeta ···${d.tarjeta}` : '';
+    case 'penalizacion': case 'pago_anticipado': case 'devolucion_pago': return euros(d.importe_cent);
+    case 'abandonada': case 'eliminada': return `${d.pax || ''} pax · ${d.fecha || ''} ${d.hora || ''}`.trim();
+    case 'valoracion': return `Comida ${d.comida} · Servicio ${d.servicio}`;
+    default: return '';
+  }
+}
 
 // Informes de Cover que todavía no se pueden replicar porque la app no guarda esos datos.
 const NOT_AVAILABLE = [
-  { title: 'Productos vendidos / Gestión de cobros / Pagos', reason: 'La app aún no cobra prepagos ni vende productos.' },
-  { title: 'Lista de espera', reason: 'La app aún no tiene lista de espera.' },
+  { title: 'Productos vendidos', reason: 'La app no vende productos. Los cobros de garantía, pago anticipado y penalizaciones están en «Cobros y pagos».' },
+  { title: 'Informe de lista de espera', reason: 'La lista de espera ya se guarda y aparece en la hoja de vida (Trazabilidad); falta un informe propio.' },
   { title: 'Reservas agrupadas por etiquetas', reason: 'Las reservas aún no llevan etiquetas.' },
   { title: 'Número de reservas por prescriptores', reason: 'No hay prescriptores ni campañas.' },
   { title: 'Resumen de clicks en valoraciones externas', reason: 'La encuesta no enlaza todavía a Google/TripAdvisor.' },

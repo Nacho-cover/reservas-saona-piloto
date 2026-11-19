@@ -298,3 +298,14 @@ button, input, select, textarea { font-family: inherit; }
 .wl-row.wl-offered .wl-status { background: #fff3cd; color: #7a5a00; border-color: #f0d98a; }
 .wl-row.wl-accepted .wl-status { background: #e2f3e6; color: #1e6b34; border-color: #a9d8b5; }
 .cchip-confirmed { background: #e2f3e6; color: #1e6b34; border-color: #a9d8b5; }
+
+/* Historial (hoja de vida) de una reserva */
+.hist-modal { max-width: 640px; max-height: 92vh; overflow-y: auto; }
+.hist-list { list-style: none; margin: 12px 0 0; padding: 0; border-left: 2px solid var(--border); }
+.hist-item { display: flex; gap: 12px; padding: 8px 0 8px 14px; position: relative; }
+.hist-item::before { content: ''; position: absolute; left: -6px; top: 14px; width: 10px; height: 10px; border-radius: 50%; background: #152b4e; }
+.hist-when { flex: 0 0 118px; font-size: 12.5px; color: #5a6470; font-variant-numeric: tabular-nums; }
+.hist-what { flex: 1; font-size: 14px; }
+.hist-detail { display: block; font-size: 13px; color: #384049; }
+.hist-by { display: block; font-size: 12px; color: #7a8590; }
+.btn-history { background: transparent; border: 1px solid var(--border); color: #384049; }

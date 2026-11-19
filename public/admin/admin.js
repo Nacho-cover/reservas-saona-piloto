@@ -294,6 +294,8 @@ function renderRow(r) {
     actions.appendChild(actionBtn(`Devolver pago (${eurosTxt(r.prepay_amount_cents)})`, () => refundPrepay(r), 'btn-charge'));
   }
 
+  actions.appendChild(actionBtn('Historial', () => openReservationTrace(r.id), 'btn-history'));
+
   row.appendChild(time);
   row.appendChild(info);
   row.appendChild(badge);
@@ -467,7 +469,7 @@ function openTableSheet(t) {
         <button class="btn-cancel-restaurant" data-act="cancel-restaurant">Cancela restaurante</button>
         <button class="btn-cancel-customer" data-act="cancel-customer">Cancela cliente</button>
       </div>` : ''}
-      ${r.phone ? '<div class="ts-res-actions"><button data-act="customer">Ficha del cliente</button></div>' : ''}
+      <div class="ts-res-actions">${r.phone ? '<button data-act="customer">Ficha del cliente</button>' : ''}<button data-act="trace">Historial</button></div>
     </div>`;
   }).join('') : '<p class="ts-empty">Sin reservas en esta mesa en el turno de ' + escapeHtml(state.shift) + '.</p>';
 
@@ -498,6 +500,7 @@ function openTableSheet(t) {
     });
     el.querySelector('[data-act="move"]')?.addEventListener('click', () => startMove(r));
     el.querySelector('[data-act="customer"]')?.addEventListener('click', () => openCustomerCard(r.phone, async () => { await loadReservations(); reopenSheet(); }));
+    el.querySelector('[data-act="trace"]')?.addEventListener('click', () => openReservationTrace(r.id));
     el.querySelector('[data-act="release"]')?.addEventListener('click', async () => {
       await releaseTable(r.id);
       closeTableSheet();

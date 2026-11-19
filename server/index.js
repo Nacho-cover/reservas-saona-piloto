@@ -57,6 +57,9 @@ app.use('/api/admin/api-keys', require('./integrationApi').adminRouter);
 // Informes descargables (equivalentes a los de Cover) — ver server/reports.js.
 app.use('/api/reports', require('./reports'));
 
+// Hoja de vida de cada reserva (trazabilidad de principio a fin) — ver server/trace.js.
+app.use('/api/trace', require('./trace').makeRouter());
+
 // Ficha de cliente común al grupo (etiquetas, alergias, historial, bloqueo web) — ver
 // server/customers.js.
 const customers = require('./customers');
