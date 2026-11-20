@@ -548,16 +548,17 @@ const REPORTS = [
       const byAnot = ctx.dateType === 'anotacion';
       const res = await db.query(`
         SELECT rest.name AS local,
-               COALESCE(r.date, e.details->>'fecha') AS fecha, COALESCE(r.time, e.details->>'hora') AS hora,
+               COALESCE(r.date, e.details->>'fecha', w.date) AS fecha, COALESCE(r.time, e.details->>'hora', w.time) AS hora,
                COALESCE(r.shift_name, e.details->>'turno') AS turno, e.reservation_id AS reserva,
-               COALESCE(r.customer_name, e.details->>'nombre') AS cliente, r.phone AS telefono,
+               COALESCE(r.customer_name, e.details->>'nombre', w.customer_name) AS cliente, COALESCE(r.phone, w.phone) AS telefono,
                to_char(e.at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM-DD HH24:MI:SS') AS momento,
                e.event, e.from_value, e.to_value, e.channel, e.details
           FROM reservation_events e
           LEFT JOIN reservations r ON r.id = e.reservation_id
+          LEFT JOIN waitlist w ON w.id = e.waitlist_id
           LEFT JOIN restaurants rest ON rest.id = e.restaurant_id
          WHERE ($1::int[] IS NULL OR e.restaurant_id = ANY($1::int[]))
-           AND ${byAnot ? "to_char(e.at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM-DD')" : "COALESCE(r.date, e.details->>'fecha')"} BETWEEN $2 AND $3
+           AND ${byAnot ? "to_char(e.at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM-DD')" : "COALESCE(r.date, e.details->>'fecha', w.date)"} BETWEEN $2 AND $3
          ORDER BY rest.name, e.reservation_id NULLS LAST, e.at, e.id
          LIMIT 100000`, [ctx.restaurantId, ctx.from, ctx.to]);
       const columns = ['Local', 'Fecha reserva', 'Hora', 'Turno', 'Reserva nº', 'Cliente', 'Teléfono',

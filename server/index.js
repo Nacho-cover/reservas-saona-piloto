@@ -472,7 +472,9 @@ app.post('/api/reservations', requireRestaurant, async (req, res) => {
         restaurant.id, date, startMinutes, duration, Number(partySize), buffer, null, zoneId
       );
       if (!tables) {
-        return { error: 409, waitlist: !isStaffBooking, message: 'Ya no hay mesa libre a esa hora. Te apuntamos en la lista de espera.' };
+        return { error: 409, waitlist: !isStaffBooking, message: isStaffBooking
+          ? 'Ya no hay mesa libre a esa hora. Si quieres, apunta al cliente con «Apuntar a la lista» (debajo de las reservas).'
+          : 'Ya no hay mesa libre a esa hora. Te apuntamos en la lista de espera.' };
       }
     }
     // El cupo por intervalo es del motor web (como en Cover): el personal puede anotar por

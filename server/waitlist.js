@@ -291,7 +291,8 @@ function makeRouter() {
       FROM waitlist WHERE restaurant_id = $1 AND date = $2 ORDER BY CASE status WHEN 'offered' THEN 0 WHEN 'waiting' THEN 1 ELSE 2 END, created_at`,
     [restaurantId, date]);
     const ids = rows.map(r => r.id);
-    const { rows: notes } = ids.length ? await db.query(`SELECT waitlist_id, channel, status, created_at FROM notifications
+    const { rows: notes } = ids.length ? await db.query(`SELECT waitlist_id, channel, status,
+        to_char(NULLIF(created_at, '')::timestamp AT TIME ZONE current_setting('TimeZone') AT TIME ZONE 'Europe/Madrid', 'YYYY-MM-DD HH24:MI:SS') AS created_at FROM notifications
       WHERE waitlist_id = ANY($1::int[]) ORDER BY id`, [ids]) : { rows: [] };
     res.json({ entries: rows.map(r => ({ ...r, notifications: notes.filter(n => n.waitlist_id === r.id) })), offerMinutes: OFFER_MINUTES,
       whatsapp: notify.whatsappConfigured() });
