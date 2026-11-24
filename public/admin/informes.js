@@ -26,6 +26,42 @@ function setRange(kind) {
   const [a, b] = rangeFor(kind);
   $('fFrom').value = iso(a);
   $('fTo').value = iso(b);
+  syncDmy('fFrom');
+  syncDmy('fTo');
+}
+
+// Selector de fecha con tres desplegables (día, mes y año). El valor real sigue
+// en un campo oculto (fFrom / fTo, formato AAAA-MM-DD), así el resto de la página no cambia.
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const diasDelMes = (y, m) => new Date(y, m, 0).getDate(); // m = 1..12
+function buildDmy(id) {
+  const box = document.querySelector(`.dmy[data-for="${id}"]`);
+  const thisYear = new Date().getFullYear();
+  const opts = (from, to, label) => Array.from({ length: to - from + 1 }, (_, i) => from + i)
+    .map(n => `<option value="${n}">${label ? label(n) : n}</option>`).join('');
+  box.innerHTML =
+    `<select data-part="d" aria-label="Día">${opts(1, 31)}</select>` +
+    `<select data-part="m" aria-label="Mes">${opts(1, 12, n => MESES[n - 1])}</select>` +
+    `<select data-part="y" aria-label="Año">${opts(thisYear - 3, thisYear + 3)}</select>`;
+  box.addEventListener('change', () => {
+    const d = box.querySelector('[data-part="d"]'), m = box.querySelector('[data-part="m"]'), y = box.querySelector('[data-part="y"]');
+    const day = Math.min(Number(d.value), diasDelMes(Number(y.value), Number(m.value))); // 31 de febrero → 28
+    $(id).value = `${y.value}-${String(m.value).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    syncDmy(id);
+    $(id).dispatchEvent(new Event('change'));
+  });
+}
+function syncDmy(id) {
+  const box = document.querySelector(`.dmy[data-for="${id}"]`);
+  const [y, m, d] = $(id).value.split('-').map(Number);
+  if (!y) return;
+  const ySel = box.querySelector('[data-part="y"]');
+  if (![...ySel.options].some(o => Number(o.value) === y)) ySel.insertAdjacentHTML('beforeend', `<option value="${y}">${y}</option>`);
+  ySel.value = y;
+  box.querySelector('[data-part="m"]').value = m;
+  const dSel = box.querySelector('[data-part="d"]');
+  [...dSel.options].forEach(o => { o.hidden = o.disabled = Number(o.value) > diasDelMes(y, m); });
+  dSel.value = d;
 }
 
 // --- Petición de un informe -------------------------------------------------------
@@ -560,6 +596,8 @@ async function calculate() {
 window.addEventListener('DOMContentLoaded', async () => {
   if (!(await guardAdminPage('reports'))) return;
   renderSessionBar($('sessionBar'));
+  buildDmy('fFrom');
+  buildDmy('fTo');
   setRange('month');
 
   const catRes = await fetch('/api/reports');

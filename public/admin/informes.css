@@ -1,9 +1,14 @@
-.rep-filters { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 14px; }
+.rep-filters { display: grid; grid-template-columns: 1.6fr 1.7fr 1.7fr 1.2fr; gap: 14px; }
 .rep-filters .field { min-width: 0; }
 .rep-filters select, .rep-filters input {
   font-size: 15px; padding: 10px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface); font-family: inherit; width: 100%;
 }
+.rep-filters .dmy { display: flex; gap: 6px; }
+.rep-filters .dmy select { padding: 10px 6px; min-width: 0; }
+.rep-filters .dmy select[data-part="d"] { flex: 0 0 62px; }
+.rep-filters .dmy select[data-part="m"] { flex: 1 1 auto; }
+.rep-filters .dmy select[data-part="y"] { flex: 0 0 78px; }
 .rep-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .rep-quick button {
   border: 1px solid var(--border); background: var(--bg); border-radius: 20px;
