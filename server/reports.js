@@ -704,6 +704,70 @@ const REPORTS = [
     },
   },
 
+  {
+    id: 'por_usuario', sheet: 'Reservas por usuario', group: 'Reservas', title: 'Reservas hechas por usuario',
+    description: 'Cuántas reservas ha creado cada persona del panel (teléfono, panel y walk-in) y cuántas vienen de clientes por web o app, con personas, cancelaciones y no show. El usuario se deduce del registro de Actividad (hora y nombre del cliente); las reservas anteriores al registro salen como «Panel sin identificar».',
+    params: ['dateType'],
+    async run(ctx) {
+      const { sql, params } = baseCte(ctx);
+      return run(`${sql},
+        quien AS (
+          SELECT DISTINCT ON (e.id) e.reservation_id, a.user_id, a.user_email
+            FROM reservation_events e
+            JOIN base b ON b.id = e.reservation_id
+            LEFT JOIN audit_log a ON a.restaurant_id = e.restaurant_id
+                 AND a.user_email IS NOT NULL AND a.action = 'reserva.crear'
+                 AND a.at BETWEEN e.at - interval '5 seconds' AND e.at + interval '15 seconds'
+                 AND a.summary ILIKE '%' || COALESCE(e.details->>'nombre', '') || '%'
+           WHERE e.event = 'creada' AND e.channel IN ('phone', 'admin', 'walkin')
+           ORDER BY e.id, abs(extract(epoch FROM (a.at - e.at)))
+        ), x AS (
+          SELECT b.*,
+                 CASE WHEN b.source IN ('web', 'app') THEN 'Cliente (web / app)'
+                      WHEN q.user_email IS NOT NULL THEN COALESCE(NULLIF(u.name, ''), q.user_email)
+                      ELSE 'Panel sin identificar' END AS usuario,
+                 CASE WHEN b.source NOT IN ('web', 'app') THEN q.user_email END AS correo
+            FROM base b
+            LEFT JOIN quien q ON q.reservation_id = b.id
+            LEFT JOIN users u ON u.id = q.user_id
+           WHERE b.status <> 'pending_card'
+        )
+        SELECT x.local AS "Local", x.usuario AS "Usuario", COALESCE(x.correo, '') AS "Correo",
+               COUNT(*)::int AS "Reservas",
+               COALESCE(SUM(x.party_size) FILTER (WHERE x.status NOT IN ('cancelled', 'no_show')), 0)::int AS "Personas",
+               ROUND(AVG(x.party_size) FILTER (WHERE x.status NOT IN ('cancelled', 'no_show')), 1) AS "Pax medio",
+               COUNT(*) FILTER (WHERE x.source = 'walkin')::int AS "Walk-in",
+               COUNT(*) FILTER (WHERE x.status = 'cancelled')::int AS "Canceladas",
+               COUNT(*) FILTER (WHERE x.status = 'no_show')::int AS "No show"
+          FROM x
+         GROUP BY x.local, x.usuario, COALESCE(x.correo, '')
+         ORDER BY x.local, COUNT(*) DESC, x.usuario`, params);
+    },
+  },
+  {
+    id: 'por_etiquetas', sheet: 'Reservas por etiquetas', group: 'Clientes', title: 'Reservas agrupadas por etiquetas del cliente',
+    description: 'Reservas, personas, visitas, no show y cancelaciones según la etiqueta del cliente (VIP, Lista negra, No paga, Partner). Un cliente con varias etiquetas cuenta en cada una; sin etiqueta salen como «Sin etiqueta».',
+    params: ['dateType'],
+    async run(ctx) {
+      const { sql, params } = baseCte(ctx);
+      return run(`${sql}
+        SELECT b.local AS "Local", t.tag AS "Etiqueta",
+               COUNT(*)::int AS "Reservas",
+               COALESCE(SUM(b.party_size) FILTER (WHERE b.status NOT IN ('cancelled', 'no_show')), 0)::int AS "Personas",
+               COUNT(*) FILTER (WHERE b.status IN ${FUERON})::int AS "Visitas",
+               COUNT(*) FILTER (WHERE b.status = 'no_show')::int AS "No show",
+               COUNT(*) FILTER (WHERE b.status = 'cancelled')::int AS "Canceladas",
+               COUNT(DISTINCT b.guest_key)::int AS "Clientes distintos"
+          FROM base b
+          LEFT JOIN customer_profiles cp ON cp.phone_norm = b.guest_key
+          CROSS JOIN LATERAL unnest(CASE WHEN cp.tags IS NULL OR cardinality(cp.tags) = 0
+                                         THEN ARRAY['Sin etiqueta'] ELSE cp.tags END) AS t(tag)
+         WHERE b.status <> 'pending_card'
+         GROUP BY b.local, t.tag
+         ORDER BY b.local, CASE WHEN t.tag = 'Sin etiqueta' THEN 1 ELSE 0 END, t.tag`, params);
+    },
+  },
+
   // ---------------- Clientes: historial único del grupo ----------------
   {
     id: 'cliente_historico', sheet: 'Histórico clientes', group: 'Clientes', title: 'Histórico de clientes del grupo (un cliente, todos los locales)',
@@ -792,10 +856,8 @@ function detalleEvento(e) {
 // Informes de Cover que todavía no se pueden replicar porque la app no guarda esos datos.
 const NOT_AVAILABLE = [
   { title: 'Productos vendidos', reason: 'La app no vende productos. Los cobros de garantía, pago anticipado y penalizaciones están en «Cobros y pagos».' },
-  { title: 'Reservas agrupadas por etiquetas', reason: 'Las reservas aún no llevan etiquetas.' },
   { title: 'Número de reservas por prescriptores', reason: 'No hay prescriptores ni campañas.' },
   { title: 'Resumen de clicks en valoraciones externas', reason: 'La encuesta no enlaza todavía a Google/TripAdvisor.' },
-  { title: 'Reservas hechas por usuario', reason: 'El panel usa un único usuario compartido; se sustituye por "reservas por canal".' },
 ];
 
 // Locales × días (para "Reservas del grupo").
