@@ -668,6 +668,42 @@ const REPORTS = [
     },
   },
 
+  {
+    id: 'lista_espera', sheet: 'Lista de espera', group: 'Trazabilidad', title: 'Lista de espera (altas, ofertas de mesa y resultado)',
+    description: 'Cada persona apuntada en la lista de espera: cuándo se apuntó, si se le ofreció mesa, cuánto tardó la oferta, cómo terminó y qué avisos recibió.',
+    params: ['dateType'],
+    async run(ctx) {
+      // El día de la lista es el de la reserva que pidió; "anotación" = el día en que se apuntó.
+      const dateExpr = ctx.dateType === 'anotacion' ? `to_char(${LOCAL_TS('w.created_at')}, 'YYYY-MM-DD')` : 'w.date';
+      // created_at está en UTC; offered_at y offer_expires_at ya se guardan en hora de España.
+      return run(`
+        SELECT rest.name AS "Local", w.date AS "Fecha", w.time AS "Hora pedida", w.party_size AS "Pax",
+               w.customer_name AS "Cliente", w.phone AS "Teléfono", w.email AS "Email",
+               CASE w.source WHEN 'web' THEN 'Web' WHEN 'panel' THEN 'Panel' ELSE w.source END AS "Canal",
+               CASE w.status WHEN 'waiting' THEN 'Esperando' WHEN 'offered' THEN 'Oferta enviada'
+                             WHEN 'accepted' THEN 'Aceptada (con reserva)' WHEN 'expired' THEN 'Oferta caducada'
+                             WHEN 'cancelled' THEN 'Quitado de la lista' ELSE w.status END AS "Estado",
+               ${FMT_TS(LOCAL_TS('w.created_at'))} AS "Apuntado el",
+               ${FMT_TS("NULLIF(w.offered_at, '')::timestamp")} AS "Oferta enviada el",
+               w.offer_time AS "Hora ofrecida",
+               ${FMT_TS("NULLIF(w.offer_expires_at, '')::timestamp")} AS "Oferta caduca el",
+               CASE WHEN NULLIF(w.offered_at, '') IS NOT NULL
+                    THEN ROUND(EXTRACT(EPOCH FROM (NULLIF(w.offered_at, '')::timestamp - ${LOCAL_TS('w.created_at')})) / 60.0)::int END AS "Minutos hasta la oferta",
+               w.reservation_id AS "Reserva nº",
+               (SELECT string_agg(
+                  CASE n.kind WHEN 'waitlist_joined' THEN 'Alta' WHEN 'waitlist_offer' THEN 'Oferta' ELSE n.kind END
+                  || ' · ' || CASE n.channel WHEN 'email' THEN 'Email' WHEN 'whatsapp' THEN 'WhatsApp' ELSE 'Sin canal' END
+                  || ' · ' || CASE n.status WHEN 'sent' THEN 'enviado' WHEN 'failed' THEN 'fallido' ELSE n.status END,
+                  ' | ' ORDER BY n.id)
+                  FROM notifications n WHERE n.waitlist_id = w.id) AS "Avisos"
+          FROM waitlist w
+          JOIN restaurants rest ON rest.id = w.restaurant_id
+         WHERE ($1::int[] IS NULL OR w.restaurant_id = ANY($1::int[]))
+           AND ${dateExpr} BETWEEN $2 AND $3
+         ORDER BY rest.name, w.date, w.time, w.id`, [ctx.restaurantId, ctx.from, ctx.to]);
+    },
+  },
+
   // ---------------- Clientes: historial único del grupo ----------------
   {
     id: 'cliente_historico', sheet: 'Histórico clientes', group: 'Clientes', title: 'Histórico de clientes del grupo (un cliente, todos los locales)',
@@ -756,7 +792,6 @@ function detalleEvento(e) {
 // Informes de Cover que todavía no se pueden replicar porque la app no guarda esos datos.
 const NOT_AVAILABLE = [
   { title: 'Productos vendidos', reason: 'La app no vende productos. Los cobros de garantía, pago anticipado y penalizaciones están en «Cobros y pagos».' },
-  { title: 'Informe de lista de espera', reason: 'La lista de espera ya se guarda y aparece en la hoja de vida (Trazabilidad); falta un informe propio.' },
   { title: 'Reservas agrupadas por etiquetas', reason: 'Las reservas aún no llevan etiquetas.' },
   { title: 'Número de reservas por prescriptores', reason: 'No hay prescriptores ni campañas.' },
   { title: 'Resumen de clicks en valoraciones externas', reason: 'La encuesta no enlaza todavía a Google/TripAdvisor.' },
